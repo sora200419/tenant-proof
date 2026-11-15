@@ -19,3 +19,7 @@ deployments/local.json
 
 # Local tool config
 .claude/
+
+# Internal notes: kept locally, not published
+DEMO.md
+FAILURES.md

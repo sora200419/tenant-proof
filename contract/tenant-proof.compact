@@ -1,0 +1,106 @@
+// This file is part of TenantProof.
+// SPDX-License-Identifier: Apache-2.0
+//
+// TenantProof: a tenant proves "my monthly income is at least 3x the rent of
+// this listing" to a landlord, without revealing the income, the payslip, or
+// which issuer attestation is theirs.
+
+pragma language_version 0.28;
+
+import CompactStandardLibrary;
+
+// ---------------------------------------------------------------------------
+// Public ledger state (everything here is visible to everyone)
+// ---------------------------------------------------------------------------
+
+// Key of the income issuer (employer / university / bank), fixed at deploy.
+export sealed ledger issuerPk: Bytes<32>;
+
+// Income attestations published by the issuer. Each leaf is
+// persistentCommit([income, tenantPk], salt): hiding (salted) and binding.
+// Historic, so a proof built against an older root stays valid while the
+// issuer keeps attesting other tenants.
+export ledger attestations: HistoricMerkleTree<10, Bytes<32>>;
+export ledger attestationCount: Counter;
+
+// Listing id -> monthly rent, set by the landlord.
+export ledger listings: Map<Bytes<32>, Uint<32>>;
+
+// Application id -> listing id. An entry exists only if the applicant proved
+// income >= 3 x rent. The id is hash(listing, tenantSecret): stable per
+// tenant+listing (blocks double-applying), and ids for different listings are
+// unrelated hashes. The issuer may still narrow down who applied (see README).
+export ledger applications: Map<Bytes<32>, Bytes<32>>;
+
+// ---------------------------------------------------------------------------
+// Private inputs (only ever on the user's device)
+// ---------------------------------------------------------------------------
+
+witness secretKey(): Bytes<32>;
+witness income(): Uint<32>;
+witness incomeSalt(): Bytes<32>;
+witness attestationPath(leaf: Bytes<32>): MerkleTreePath<10, Bytes<32>>;
+
+constructor() {
+  issuerPk = disclose(publicKey(secretKey()));
+}
+
+// ---------------------------------------------------------------------------
+// Pure helpers (also used off-chain by the issuer and the UI)
+// ---------------------------------------------------------------------------
+
+export pure circuit publicKey(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "tenantproof:pk:"), sk]);
+}
+
+export pure circuit attestationLeaf(inc: Uint<32>, tenantPk: Bytes<32>, salt: Bytes<32>): Bytes<32> {
+  return persistentCommit<Vector<2, Bytes<32>>>([inc as Field as Bytes<32>, tenantPk], salt);
+}
+
+export pure circuit applicationId(listingId: Bytes<32>, sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([pad(32, "tenantproof:app:"), listingId, sk]);
+}
+
+// ---------------------------------------------------------------------------
+// Circuits
+// ---------------------------------------------------------------------------
+
+// Issuer only: publish an income attestation for a tenant. The issuer computes
+// the leaf off-chain with attestationLeaf and hands (income, salt) to the
+// tenant privately.
+export circuit attest(leaf: Bytes<32>): [] {
+  assert(disclose(publicKey(secretKey()) == issuerPk), "Only the issuer can attest");
+  attestations.insert(disclose(leaf));
+  attestationCount.increment(1);
+}
+
+// Landlord: register a listing and its monthly rent.
+export circuit createListing(listingId: Bytes<32>, rent: Uint<32>): [] {
+  const id = disclose(listingId);
+  const r = disclose(rent);
+  assert(!listings.member(id), "Listing already exists");
+  assert(r > 0, "Rent must be positive");
+  listings.insert(id, r);
+}
+
+// Tenant: prove income >= 3 x rent for a listing, without revealing income.
+export circuit apply(listingId: Bytes<32>): [] {
+  const id = disclose(listingId);
+  assert(listings.member(id), "Unknown listing");
+  const rent = listings.lookup(id);
+
+  const sk = secretKey();
+  const inc = income();
+  const leaf = attestationLeaf(inc, publicKey(sk), incomeSalt());
+  const path = attestationPath(leaf);
+  assert(disclose(path.leaf == leaf), "Attestation path is for a different leaf");
+  assert(attestations.checkRoot(disclose(merkleTreePathRoot<10, Bytes<32>>(path))),
+         "No issuer attestation for this income");
+
+  // Only the pass/fail outcome of this comparison becomes public.
+  assert(disclose(inc >= 3 * rent), "Income is below 3x the rent");
+
+  const app = disclose(applicationId(id, sk));
+  assert(!applications.member(app), "Already applied to this listing");
+  applications.insert(app, id);
+}

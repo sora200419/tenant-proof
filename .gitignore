@@ -1,0 +1,21 @@
+node_modules/
+dist/
+*.zip
+*.log
+
+# Proving/verifier keys are large; regenerate with `npm run compile`.
+contract/managed/*/keys/
+
+# Secrets and local runtime state: never commit
+.env
+.env.*
+!.env.example
+.tenant-proof/
+.wallet-state/
+.mnkit/
+midnight-level-db/
+logs/
+deployments/local.json
+
+# Local tool config
+.claude/

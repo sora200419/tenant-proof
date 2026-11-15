@@ -11,6 +11,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 // Mirrors the official Midnight UI template (midnight-examples,
 // packages/mnkit/templates/ui/vite.config.ts).
 export default defineConfig({
+  // GitHub Pages serves the project at /tenant-proof/; local dev and the root domain use /.
+  base: process.env['GITHUB_ACTIONS'] ? '/tenant-proof/' : '/',
   plugins: [
     react(),
     // The onchain-runtime ships WebAssembly and loads it with top-level await.

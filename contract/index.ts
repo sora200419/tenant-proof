@@ -18,6 +18,7 @@
 // The JS and ZKIR are committed; the proving keys are gitignored.
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/v9/compact-js';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export {
   Contract,
@@ -30,7 +31,9 @@ export {
 } from './managed/tenant-proof/contract/index.js';
 import { Contract } from './managed/tenant-proof/contract/index.js';
 import { witnesses } from './witnesses.js';
-const currentDir = path.resolve(new URL(import.meta.url).pathname, '..');
+// fileURLToPath, not URL.pathname: on Windows the pathname is "/C:/...", which
+// path.resolve turns into "C:\C:\..." and the artifacts are never found.
+const currentDir = path.resolve(fileURLToPath(new URL('.', import.meta.url)));
 export const zkConfigPath = path.resolve(currentDir, 'managed', 'tenant-proof');
 
 export const CompiledTenantProofContract = CompiledContract.make(

@@ -11,7 +11,7 @@ Renting a room usually means sending payslips and ID to a stranger. TenantProof 
 | Contract | Compiles with the Compact compiler 0.36.0 (language 0.28), including proving keys for all three circuits |
 | Tests | 17 in-memory tests pass (`npm run test:sim`) |
 | Browser demo | Runs the compiled contract in the page on the official Compact runtime |
-| Public network | **Not deployed yet.** The deploy script and an end-to-end network test are in the repo but have not been run against Preview or Preprod |
+| Public network | **Deployed to Preview (partial).** Contract `e6123a996294cbdf608d8909af52d2a8e5b1bbd636e6fb49e1f93db79a0c96bb`. The deploy step passed; the three flow tests (list, apply, low-income rejection) were blocked by a Preview indexer outage (HTTP 503) and are not yet verified on-chain. Not run on Preprod |
 
 The browser demo executes the real circuit logic and every `assert`, but it does not generate a zero-knowledge proof or submit a transaction. That needs a proof server and a funded wallet (see [Deploying](#deploying)).
 
@@ -83,20 +83,24 @@ The compiled contract (`contract/managed/tenant-proof/contract`) is committed, s
 - an application is still accepted after the issuer attests other tenants (historic Merkle root)
 - no secret key, tenant public key, salt or income appears in the public ledger
 
-[src/test/tenant-proof.test.ts](src/test/tenant-proof.test.ts) is the same flow against a real network (deploy, attest, list, apply, and a rejected low-income applicant). It has not been run yet.
+[src/test/tenant-proof.test.ts](src/test/tenant-proof.test.ts) is the same flow against a real network (deploy, attest, list, apply, and a rejected low-income applicant).
+
+**Preview result so far:** the deploy test passed and the contract is live at `e6123a996294cbdf608d8909af52d2a8e5b1bbd636e6fb49e1f93db79a0c96bb`. The three flow tests did not complete: the Preview indexer returned HTTP 503 during those calls. They have not been verified on-chain yet.
 
 ## Deploying
 
-Not done yet. To deploy to the Preview test network you need Docker (for the proof server), a wallet seed funded with tNIGHT from the [Preview faucet](https://midnight-tmnight-preview.nethermind.dev/), and a Linux, macOS or WSL shell:
+To run against the Preview test network you need Docker (for the proof server) and a test wallet funded with tNIGHT from the [Preview faucet](https://midnight-tmnight-preview.nethermind.dev/). The run used Windows PowerShell:
 
-```bash
-npm run compile
-npm run proof:up
-npm run test:preview
-npm run deploy:preview
+```powershell
+docker run -d --name tenantproof-proof-server -p 127.0.0.1:6300:6300 midnightntwrk/proof-server:9.0.0 midnight-proof-server
+$env:MIDNIGHT_NETWORK = 'preview'
+$env:NODE_OPTIONS = '--experimental-vm-modules'
+npx vitest run --exclude 'src/**/*.sim.test.ts'
 ```
 
-The wallet seed is read from `MIDNIGHT_PREVIEW_ALICE_SEED` and the private-state password from `MIDNIGHT_PRIVATE_STATE_PASSWORD`, both in a gitignored `.env.preview` (see [.env.example](.env.example)). The issuer's contract secret is created on first deploy in `.tenant-proof/issuer.json`, also gitignored.
+The wallet is read from `MIDNIGHT_PREVIEW_ALICE_MNEMONIC` and the private-state password from `MIDNIGHT_PRIVATE_STATE_PASSWORD`, both in a gitignored `.env.preview` (see [.env.example](.env.example)). The issuer's contract secret is created on first deploy in `.tenant-proof/issuer.json`, also gitignored.
+
+A first run from a fresh wallet syncs from genesis and takes about 78 minutes on Preview. Later runs reuse the saved state in `.wallet-state/`.
 
 ## Limits of this version
 

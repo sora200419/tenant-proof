@@ -10,7 +10,7 @@ Renting a room usually means sending payslips and ID to a stranger. TenantProof 
 |---|---|
 | Contract | Compiles with the Compact compiler 0.36.0 (language 0.28), including proving keys for all three circuits |
 | Tests | 17 in-memory tests pass (`npm run test:sim`) |
-| Browser demo | Runs the compiled contract in the page on the official Compact runtime |
+| Browser demo | Runs the compiled contract in the page on the official Compact runtime. Live: https://sora200419.github.io/tenant-proof/ |
 | Public network | **Deployed to Preview (partial).** Contract `e6123a996294cbdf608d8909af52d2a8e5b1bbd636e6fb49e1f93db79a0c96bb`. The deploy step passed; the three flow tests (list, apply, low-income rejection) were blocked by a Preview indexer outage (HTTP 503) and are not yet verified on-chain. Not run on Preprod |
 
 The browser demo executes the real circuit logic and every `assert`, but it does not generate a zero-knowledge proof or submit a transaction. That needs a proof server and a funded wallet (see [Deploying](#deploying)).

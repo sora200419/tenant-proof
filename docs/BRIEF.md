@@ -3,7 +3,7 @@
 ## Goal
 Give a landlord an income signal that comes from the source and cannot be forged, instead of a payslip PDF. A tenant proves one fact, "my monthly income is at least 3× the rent of this listing", through an issuer attestation. As a side benefit the tenant does not have to send payslips and ID to a stranger. Phase one (hackathon demo) is done; this phase turns it into something real tenants, landlords and issuers can use.
 
-Positioning (decided 2026-11-19, from `docs/RESEARCH.md`): the best-evidenced need is on the landlord side (forgeable tenant-supplied documents, no tenancy tribunal in Malaysia). "Tenants want to share less" is only indirectly evidenced, so privacy is the secondary benefit, not the headline. TenantProof is one layer of screening, not a replacement for deposit, ID or references.
+Positioning (decided 2026-11-19, from local research notes, not published): the best-evidenced need is on the landlord side (forgeable tenant-supplied documents, no tenancy tribunal in Malaysia). "Tenants want to share less" is only indirectly evidenced, so privacy is the secondary benefit, not the headline. TenantProof is one layer of screening, not a replacement for deposit, ID or references.
 
 ## Who uses or judges it
 - **Landlords and agents** (first buyer, and the party to validate): list a room with a public rent and receive applications from eligible tenants. First market: room rental in the Klang Valley.
@@ -12,7 +12,7 @@ Positioning (decided 2026-11-19, from `docs/RESEARCH.md`): the best-evidenced ne
 
 ## Scope of the protocol and the story
 - The protocol is generic: no country is hard-coded (the multiplier is meant to be configurable; the issuer can be any employer, university or bank).
-- The demo and pitch story is Malaysian (room rental, RM, protagonist is a young person in their first job) and uses only public evidence from `docs/RESEARCH.md`. UK figures are market-size side evidence only.
+- The demo and pitch story is Malaysian (room rental, RM, protagonist is a young person in their first job) and uses only public evidence gathered in the local research notes (not published). UK figures are market-size side evidence only.
 - No interviews during the hackathon. The demo contains no invented landlord or tenant quotes.
 
 ## Deadline
@@ -31,7 +31,7 @@ TODO: next delivery date.
 - [ ] Every privacy statement in README, UI and docs matches the per-party table in `docs/SECURITY.md`.
 
 ## Assumptions to validate
-All of these are UNVALIDATED. None has first-hand evidence yet; `docs/RESEARCH.md` is vendor blogs, news and a few old forum threads.
+All of these are UNVALIDATED. None has first-hand evidence yet; the local research notes (not published) are vendor blogs, news and a few old forum threads.
 
 | # | Assumption | Evidence today | Disproved if |
 | --- | --- | --- | --- |
@@ -49,7 +49,7 @@ Not done in the hackathon. Record each interview in a gitignored notes file; no 
 3. **Payroll or HR platform contacts, about 5.** How are employment and income letters handled today, and what do they cost HR? Would you sign a salary attestation? What liability worries you? What integration would you accept? Who pays? Pitch angle: an employee benefit (fewer employment letters, fewer landlord verification calls); the issuer signs only the income figure and the threshold is computed in the circuit, so it does not vouch for "can afford rent". Kill criterion: no willingness to sign without a legal indemnity.
 
 ## Known gaps
-- **Students and gig or freelance workers have no payroll issuer**, so this version cannot serve them. Deferred; to be solved later. `docs/RESEARCH.md` calls irregular income a real cross-market gap and the weakest point of an issuer-based design.
+- **Students and gig or freelance workers have no payroll issuer**, so this version cannot serve them. Deferred; to be solved later. The local research notes (not published) call irregular income a real cross-market gap and the weakest point of an issuer-based design.
 - Attestations cannot expire or be revoked, so an old attestation stays valid (landlords prefer fresh data).
 - Credentials can be shared; nothing binds them to a person (borrowed identity is the documented fraud pattern).
 - Issuer liability for the attested figure is unsourced.

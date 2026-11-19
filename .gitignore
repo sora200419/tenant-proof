@@ -10,6 +10,9 @@ contract/managed/*/keys/
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+secrets/
 .tenant-proof/
 .wallet-state/
 .mnkit/
@@ -23,3 +26,10 @@ deployments/local.json
 # Internal notes: kept locally, not published
 DEMO.md
 FAILURES.md
+CLAUDE.md
+PLAN.md
+
+# Local research (not published)
+research_notes/
+reports/
+docs/RESEARCH.md

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      # The frontend imports the contract and test helpers from the repo root,
+      # so the root dependencies must be installed too.
+      # The compiled contract (contract/managed/*/contract, zkir) is committed,
+      # so no Compact compiler is needed here.
+      - run: npm ci
+      - run: npm ci --prefix frontend
+      - name: Typecheck (root)
+        run: npm run typecheck
+      - name: Typecheck (frontend)
+        run: npm --prefix frontend run typecheck
+      - name: Sim tests (in memory)
+        run: npm run test:sim

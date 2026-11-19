@@ -221,14 +221,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.callContext.currentQueryContext != undefined)) {
           __compactRuntime.typeError('attest',
                                      'argument 1 (as invoked from Typescript)',
-                                     'tenant-proof.compact line 71 char 1',
+                                     'tenant-proof.compact line 73 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(leaf_0.buffer instanceof ArrayBuffer && leaf_0.BYTES_PER_ELEMENT === 1 && leaf_0.length === 32)) {
           __compactRuntime.typeError('attest',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'tenant-proof.compact line 71 char 1',
+                                     'tenant-proof.compact line 73 char 1',
                                      'Bytes<32>',
                                      leaf_0)
         }
@@ -257,21 +257,21 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.callContext.currentQueryContext != undefined)) {
           __compactRuntime.typeError('createListing',
                                      'argument 1 (as invoked from Typescript)',
-                                     'tenant-proof.compact line 78 char 1',
+                                     'tenant-proof.compact line 80 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(listingId_0.buffer instanceof ArrayBuffer && listingId_0.BYTES_PER_ELEMENT === 1 && listingId_0.length === 32)) {
           __compactRuntime.typeError('createListing',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'tenant-proof.compact line 78 char 1',
+                                     'tenant-proof.compact line 80 char 1',
                                      'Bytes<32>',
                                      listingId_0)
         }
         if (!(typeof(rent_0) === 'bigint' && rent_0 >= 0n && rent_0 <= 4294967295n)) {
           __compactRuntime.typeError('createListing',
                                      'argument 2 (argument 3 as invoked from Typescript)',
-                                     'tenant-proof.compact line 78 char 1',
+                                     'tenant-proof.compact line 80 char 1',
                                      'Uint<0..4294967296>',
                                      rent_0)
         }
@@ -302,14 +302,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.callContext.currentQueryContext != undefined)) {
           __compactRuntime.typeError('apply',
                                      'argument 1 (as invoked from Typescript)',
-                                     'tenant-proof.compact line 87 char 1',
+                                     'tenant-proof.compact line 89 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(listingId_0.buffer instanceof ArrayBuffer && listingId_0.BYTES_PER_ELEMENT === 1 && listingId_0.length === 32)) {
           __compactRuntime.typeError('apply',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'tenant-proof.compact line 87 char 1',
+                                     'tenant-proof.compact line 89 char 1',
                                      'Bytes<32>',
                                      listingId_0)
         }
@@ -520,7 +520,7 @@ export class Contract {
     if (!(result_0.buffer instanceof ArrayBuffer && result_0.BYTES_PER_ELEMENT === 1 && result_0.length === 32)) {
       __compactRuntime.typeError('secretKey',
                                  'return value',
-                                 'tenant-proof.compact line 39 char 1',
+                                 'tenant-proof.compact line 41 char 1',
                                  'Bytes<32>',
                                  result_0)
     }
@@ -537,7 +537,7 @@ export class Contract {
     if (!(typeof(result_0) === 'bigint' && result_0 >= 0n && result_0 <= 4294967295n)) {
       __compactRuntime.typeError('income',
                                  'return value',
-                                 'tenant-proof.compact line 40 char 1',
+                                 'tenant-proof.compact line 42 char 1',
                                  'Uint<0..4294967296>',
                                  result_0)
     }
@@ -554,7 +554,7 @@ export class Contract {
     if (!(result_0.buffer instanceof ArrayBuffer && result_0.BYTES_PER_ELEMENT === 1 && result_0.length === 32)) {
       __compactRuntime.typeError('incomeSalt',
                                  'return value',
-                                 'tenant-proof.compact line 41 char 1',
+                                 'tenant-proof.compact line 43 char 1',
                                  'Bytes<32>',
                                  result_0)
     }
@@ -572,7 +572,7 @@ export class Contract {
     if (!(typeof(result_0) === 'object' && result_0.leaf.buffer instanceof ArrayBuffer && result_0.leaf.BYTES_PER_ELEMENT === 1 && result_0.leaf.length === 32 && Array.isArray(result_0.path) && result_0.path.length === 10 && result_0.path.every((t) => typeof(t) === 'object' && typeof(t.sibling) === 'object' && typeof(t.sibling.field) === 'bigint' && t.sibling.field >= 0 && t.sibling.field <= __compactRuntime.MAX_FIELD && typeof(t.goes_left) === 'boolean'))) {
       __compactRuntime.typeError('attestationPath',
                                  'return value',
-                                 'tenant-proof.compact line 42 char 1',
+                                 'tenant-proof.compact line 44 char 1',
                                  'struct MerkleTreePath<leaf: Bytes<32>, path: Vector<10, struct MerkleTreePathEntry<sibling: struct MerkleTreeDigest<field: Field>, goes_left: Boolean>>>',
                                  result_0)
     }
@@ -589,7 +589,7 @@ export class Contract {
   _attestationLeaf_0(inc_0, tenantPk_0, salt_0) {
     return this._persistentCommit_0([__compactRuntime.convertBigintToBytes(32,
                                                                            inc_0,
-                                                                           'tenant-proof.compact line 57 char 50'),
+                                                                           'tenant-proof.compact line 59 char 50'),
                                      tenantPk_0],
                                     salt_0);
   }
@@ -914,7 +914,7 @@ export function ledger(stateOrChargedState) {
         if (!(typeof(rt_0) === 'object' && typeof(rt_0.field) === 'bigint' && rt_0.field >= 0 && rt_0.field <= __compactRuntime.MAX_FIELD)) {
           __compactRuntime.typeError('checkRoot',
                                      'argument 1',
-                                     'tenant-proof.compact line 23 char 1',
+                                     'tenant-proof.compact line 25 char 1',
                                      'struct MerkleTreeDigest<field: Field>',
                                      rt_0)
         }
@@ -964,14 +964,14 @@ export function ledger(stateOrChargedState) {
         if (!(typeof(index_0) === 'bigint' && index_0 >= 0 && index_0 <= __compactRuntime.MAX_FIELD)) {
           __compactRuntime.typeError('path_for_leaf',
                                      'argument 1',
-                                     'tenant-proof.compact line 23 char 1',
+                                     'tenant-proof.compact line 25 char 1',
                                      'Field',
                                      index_0)
         }
         if (!(leaf_0.buffer instanceof ArrayBuffer && leaf_0.BYTES_PER_ELEMENT === 1 && leaf_0.length === 32)) {
           __compactRuntime.typeError('path_for_leaf',
                                      'argument 2',
-                                     'tenant-proof.compact line 23 char 1',
+                                     'tenant-proof.compact line 25 char 1',
                                      'Bytes<32>',
                                      leaf_0)
         }
@@ -986,7 +986,7 @@ export function ledger(stateOrChargedState) {
         if (!(leaf_0.buffer instanceof ArrayBuffer && leaf_0.BYTES_PER_ELEMENT === 1 && leaf_0.length === 32)) {
           __compactRuntime.typeError('find_path_for_leaf',
                                      'argument 1',
-                                     'tenant-proof.compact line 23 char 1',
+                                     'tenant-proof.compact line 25 char 1',
                                      'Bytes<32>',
                                      leaf_0)
         }
@@ -1064,7 +1064,7 @@ export function ledger(stateOrChargedState) {
         if (!(key_0.buffer instanceof ArrayBuffer && key_0.BYTES_PER_ELEMENT === 1 && key_0.length === 32)) {
           __compactRuntime.typeError('member',
                                      'argument 1',
-                                     'tenant-proof.compact line 27 char 1',
+                                     'tenant-proof.compact line 29 char 1',
                                      'Bytes<32>',
                                      key_0)
         }
@@ -1093,7 +1093,7 @@ export function ledger(stateOrChargedState) {
         if (!(key_0.buffer instanceof ArrayBuffer && key_0.BYTES_PER_ELEMENT === 1 && key_0.length === 32)) {
           __compactRuntime.typeError('lookup',
                                      'argument 1',
-                                     'tenant-proof.compact line 27 char 1',
+                                     'tenant-proof.compact line 29 char 1',
                                      'Bytes<32>',
                                      key_0)
         }
@@ -1173,7 +1173,7 @@ export function ledger(stateOrChargedState) {
         if (!(key_0.buffer instanceof ArrayBuffer && key_0.BYTES_PER_ELEMENT === 1 && key_0.length === 32)) {
           __compactRuntime.typeError('member',
                                      'argument 1',
-                                     'tenant-proof.compact line 33 char 1',
+                                     'tenant-proof.compact line 35 char 1',
                                      'Bytes<32>',
                                      key_0)
         }
@@ -1202,7 +1202,7 @@ export function ledger(stateOrChargedState) {
         if (!(key_0.buffer instanceof ArrayBuffer && key_0.BYTES_PER_ELEMENT === 1 && key_0.length === 32)) {
           __compactRuntime.typeError('lookup',
                                      'argument 1',
-                                     'tenant-proof.compact line 33 char 1',
+                                     'tenant-proof.compact line 35 char 1',
                                      'Bytes<32>',
                                      key_0)
         }
@@ -1253,7 +1253,7 @@ export const pureCircuits = {
     if (!(sk_0.buffer instanceof ArrayBuffer && sk_0.BYTES_PER_ELEMENT === 1 && sk_0.length === 32)) {
       __compactRuntime.typeError('publicKey',
                                  'argument 1',
-                                 'tenant-proof.compact line 52 char 1',
+                                 'tenant-proof.compact line 54 char 1',
                                  'Bytes<32>',
                                  sk_0)
     }
@@ -1269,21 +1269,21 @@ export const pureCircuits = {
     if (!(typeof(inc_0) === 'bigint' && inc_0 >= 0n && inc_0 <= 4294967295n)) {
       __compactRuntime.typeError('attestationLeaf',
                                  'argument 1',
-                                 'tenant-proof.compact line 56 char 1',
+                                 'tenant-proof.compact line 58 char 1',
                                  'Uint<0..4294967296>',
                                  inc_0)
     }
     if (!(tenantPk_0.buffer instanceof ArrayBuffer && tenantPk_0.BYTES_PER_ELEMENT === 1 && tenantPk_0.length === 32)) {
       __compactRuntime.typeError('attestationLeaf',
                                  'argument 2',
-                                 'tenant-proof.compact line 56 char 1',
+                                 'tenant-proof.compact line 58 char 1',
                                  'Bytes<32>',
                                  tenantPk_0)
     }
     if (!(salt_0.buffer instanceof ArrayBuffer && salt_0.BYTES_PER_ELEMENT === 1 && salt_0.length === 32)) {
       __compactRuntime.typeError('attestationLeaf',
                                  'argument 3',
-                                 'tenant-proof.compact line 56 char 1',
+                                 'tenant-proof.compact line 58 char 1',
                                  'Bytes<32>',
                                  salt_0)
     }
@@ -1298,14 +1298,14 @@ export const pureCircuits = {
     if (!(listingId_0.buffer instanceof ArrayBuffer && listingId_0.BYTES_PER_ELEMENT === 1 && listingId_0.length === 32)) {
       __compactRuntime.typeError('applicationId',
                                  'argument 1',
-                                 'tenant-proof.compact line 60 char 1',
+                                 'tenant-proof.compact line 62 char 1',
                                  'Bytes<32>',
                                  listingId_0)
     }
     if (!(sk_0.buffer instanceof ArrayBuffer && sk_0.BYTES_PER_ELEMENT === 1 && sk_0.length === 32)) {
       __compactRuntime.typeError('applicationId',
                                  'argument 2',
-                                 'tenant-proof.compact line 60 char 1',
+                                 'tenant-proof.compact line 62 char 1',
                                  'Bytes<32>',
                                  sk_0)
     }

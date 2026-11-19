@@ -1,8 +1,8 @@
 # TenantProof
 
-**Prove you can afford the rent without showing what you earn.**
+**Give landlords a source-verified income signal from a trusted issuer, without sending payslips.**
 
-Renting a room usually means sending payslips and ID to a stranger. TenantProof lets a tenant prove one fact to a landlord, "my monthly income is at least 3× the rent of this listing", and nothing else. It is a smart contract written in [Compact](https://docs.midnight.network/) for the Midnight network, plus a browser demo.
+A landlord renting out a room usually relies on payslips that the tenant supplies and that are hard to check. With TenantProof, an issuer (an employer, university or bank) attests the tenant's income, and the tenant proves one fact to the landlord: "my attested monthly income is at least 3× the rent of this listing". The landlord learns that fact and a lower bound on the income, not the payslip or the tenant's key. The signal is source-verified in one sense only: the contract checks that the issuer attested the income. The issuer is trusted: the contract cannot check that it told the truth. As a side benefit, the tenant does not send payslips to the landlord. It is a smart contract written in [Compact](https://docs.midnight.network/) for the Midnight network, plus a browser demo.
 
 ## Status
 
@@ -55,7 +55,7 @@ npm --prefix frontend install
 npm run dev
 ```
 
-Open http://localhost:5173 and press **Load demo data**. Then, on the Tenant tab:
+Open http://localhost:5173 and press **Load demo data**. The issuer in the demo is a mock run by the page, not a real employer. Then, on the Tenant tab:
 
 - Apply as Alice (income 6000) to both rooms: both pass, with two unrelated application ids.
 - Apply as Bob (income 3500) to the 1500 room: rejected, `Income is below 3x the rent`.
@@ -111,6 +111,8 @@ A first run from a fresh wallet syncs from genesis and takes about 78 minutes on
 - **Credentials can be shared.** Nothing binds an attestation to a wallet or an identity: a tenant who gives their key, income and salt to someone else lets that person apply as them.
 - **Anyone can create a listing**, including taking a listing id before its real landlord does, and the multiplier is fixed at 3.
 - **The demo keeps every role's keys in one browser tab** so the flow fits on one screen. In real use each role has its own device and wallet.
+- **The proof server sees the private inputs.** To build a proof it receives the tenant's key, income and salt. That is only safe when the user runs it on their own machine (`127.0.0.1:6300`); a remote proof server would see the income and the salt. The in-page demo uses no proof server.
+- **The page handles keys.** The demo page runs the circuits and holds keys in memory, so a tampered build of the page could send them elsewhere. There is no defence for this yet.
 - **The attestation tree holds 1024 leaves.**
 
 ## Roadmap

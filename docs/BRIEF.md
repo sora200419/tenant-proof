@@ -1,7 +1,7 @@
 # Brief: TenantProof
 
 ## Goal
-Give a landlord an income signal that comes from the source and cannot be forged, instead of a payslip PDF. A tenant proves one fact, "my monthly income is at least 3× the rent of this listing", through an issuer attestation. As a side benefit the tenant does not have to send payslips and ID to a stranger. Phase one (hackathon demo) is done; this phase turns it into something real tenants, landlords and issuers can use.
+Give a landlord a source-verified signal of income, attested by a trusted issuer (the contract checks the attestation, not the income itself), instead of a payslip PDF. A tenant proves one fact, "my monthly income is at least 3× the rent of this listing", through an issuer attestation. As a side benefit the tenant does not have to send payslips and ID to a stranger. Phase one (hackathon demo) is done; this phase turns it into something real tenants, landlords and issuers can use.
 
 Positioning (decided 2026-11-19, from local research notes, not published): the best-evidenced need is on the landlord side (forgeable tenant-supplied documents, no tenancy tribunal in Malaysia). "Tenants want to share less" is only indirectly evidenced, so privacy is the secondary benefit, not the headline. TenantProof is one layer of screening, not a replacement for deposit, ID or references.
 

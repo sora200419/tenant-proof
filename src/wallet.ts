@@ -61,6 +61,7 @@ import {
 } from '@midnight-ntwrk/testkit-js';
 import * as Rx from 'rxjs';
 import type { Logger } from 'pino';
+import { sanitizeError } from './retry.js';
 
 // A proven, not yet bound ledger 9 transaction: what a contract call or deploy
 // hands the wallet to balance.
@@ -310,7 +311,7 @@ export async function syncWallet(
           ),
       }),
       Rx.catchError((err) => {
-        logger.error(`Wallet sync error: ${err}`);
+        logger.error(sanitizeError(err, 'Wallet sync error').message);
         return Rx.throwError(() => err);
       }),
     ),
@@ -388,7 +389,8 @@ async function restoreSavedState(
       wallet = await restoreFacade(builder, dustOptions, JSON.parse(readFileSync(file, 'utf8')) as SavedWalletState);
       logger.info(`Restored wallet state from ${file}.`);
     } catch (error) {
-      logger.warn(`Could not restore ${file} (${String(error)}); syncing from genesis.`);
+      // Name and first line only: a JSON.parse error quotes part of the state file.
+      logger.warn(`Could not restore ${file} (${sanitizeError(error, 'restore').message}); syncing from genesis.`);
     }
   }
   if (file) stateFiles.set(wallet, file);
@@ -502,8 +504,14 @@ const FUND_TIMEOUT_MS = Number(process.env['MIDNIGHT_FUND_TIMEOUT_MS'] ?? 30 * 6
 
 const hasNight = (s: FacadeState) => Object.values(s.unshielded.balances).some((v) => v > 0n);
 
-/** The indexer's latest block time, or undefined while it can't be read. */
-async function latestBlockTime(indexerHttpUrl: string, timeoutMs: number): Promise<Date | undefined> {
+/**
+ * The indexer's latest block time, or the sanitised reason it couldn't be read
+ * (the caller keeps polling and reports the last reason if it gives up).
+ */
+async function latestBlockTime(
+  indexerHttpUrl: string,
+  timeoutMs: number,
+): Promise<{ time: Date } | { error: string }> {
   try {
     const res = await fetch(indexerHttpUrl, {
       method: 'POST',
@@ -511,11 +519,14 @@ async function latestBlockTime(indexerHttpUrl: string, timeoutMs: number): Promi
       body: JSON.stringify({ query: '{ block { timestamp } }' }),
       signal: AbortSignal.timeout(Math.max(1, timeoutMs)),
     });
+    if (!res.ok) return { error: `indexer block-time read: HTTP ${res.status}` };
     const body = (await res.json()) as { data?: { block?: { timestamp?: number } } };
     const ts = body.data?.block?.timestamp;
-    return typeof ts === 'number' ? new Date(ts) : undefined;
-  } catch {
-    return undefined;
+    return typeof ts === 'number'
+      ? { time: new Date(ts) }
+      : { error: 'indexer block-time read: no block timestamp in the answer' };
+  } catch (err) {
+    return { error: sanitizeError(err, 'indexer block-time read').message };
   }
 }
 
@@ -568,16 +579,21 @@ export async function waitForDust(
     let latest = state;
     let lastLogged = 0;
     for (;;) {
-      const blockTime = await latestBlockTime(indexerHttpUrl, Math.min(10_000, deadline - Date.now()));
-      const balance = blockTime ? latest.dust.balance(blockTime) : 0n;
+      const read = await latestBlockTime(indexerHttpUrl, Math.min(10_000, deadline - Date.now()));
+      const readError = 'error' in read ? read.error : undefined;
+      const balance = 'time' in read ? latest.dust.balance(read.time) : 0n;
       if (balance >= MIN_DUST_SPECKS) break;
       if (Date.now() > deadline) {
         throw new Error(
-          `DUST at ${formatDust(balance)}, below ${formatDust(MIN_DUST_SPECKS)}, after ${timeoutMs}ms`,
+          `DUST at ${formatDust(balance)}, below ${formatDust(MIN_DUST_SPECKS)}, after ${timeoutMs}ms` +
+            (readError ? ` (last block-time read failed: ${readError})` : ''),
         );
       }
       if (Date.now() - lastLogged >= 60_000) {
-        logger.info(`  DUST ${formatDust(balance)} / ${formatDust(MIN_DUST_SPECKS)}`);
+        logger.info(
+          `  DUST ${formatDust(balance)} / ${formatDust(MIN_DUST_SPECKS)}` +
+            (readError ? ` (block time unknown: ${readError})` : ''),
+        );
         lastLogged = Date.now();
       }
       await new Promise((r) => setTimeout(r, 5_000));

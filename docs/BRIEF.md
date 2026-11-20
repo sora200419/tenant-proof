@@ -25,7 +25,7 @@ TODO: next delivery date.
 4. The landlord sees an application id for that listing.
 
 ## Acceptance criteria (draft)
-- [ ] The list, apply and low-income-rejection flow tests pass on Preview against a deployed contract.
+- [x] The list, apply and low-income-rejection flow tests pass on Preview against a deployed contract.
 - [ ] The UI connects to the Lace wallet and a proof server, generates a proof and submits a real transaction.
 - [ ] Each role uses its own device and keys; no role's secrets are held in another role's browser.
 - [ ] Every privacy statement in README, UI and docs matches the per-party table in `docs/SECURITY.md`.

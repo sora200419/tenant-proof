@@ -29,7 +29,7 @@
 | Listing id squatting (taking a landlord's id first) | `createListing` | **None yet**; planned: listings owned by the landlord's key | — |
 | Issuer attests a false income | off-chain | **None**: the issuer is trusted | — |
 | Stale credential (income changed, job lost) | `attest` | **None yet**; planned: expiry and revocation | — |
-| Secrets in logs | deploy / tests | Blockfrost id travels in URL query strings, so URLs are never logged; errors are not printed with request data | TODO |
+| Secrets in logs | deploy / tests | The Blockfrost id travels in URL query strings. The only URL our code logs itself is the keyless faucet page (`src/wallet.ts`, funding prompt). The wallet log no longer prints part of the master seed (removed 2026-11-20); testkit's own logger is limited to warnings. **Gaps:** (1) raw SDK errors are logged unsanitised (`Wallet sync error` in `src/wallet.ts`, `deploy failed` and `wait-for-dust failed` with the stack in `scripts/deploy.ts` and `scripts/wait-for-dust.ts`) and may carry request URLs; a sanitiser is planned for the next slice. (2) The Polkadot RPC client (`RPC-CORE`) logs the node's WebSocket URL when it disconnects; the 2026-11-20 Preview run printed it 6 times. On Preprod both would expose the Blockfrost id. Not yet run on Preprod | Manual scan of the 2026-11-20 Preview run log: no mnemonic, seed, salt, income or `project_id`; only the keyless Preview node URL |
 | All roles' keys in one browser tab | demo UI | Demo only; product gives each role its own device and wallet | — |
 | Malicious frontend build | GitHub Pages | TODO: the page runs the circuits and handles keys, so a tampered bundle could exfiltrate them | — |
 
@@ -47,12 +47,20 @@ Mirrors README "What is public and what is not" and "Limits of this version". Ne
 ## External services
 | Service / SDK | Version | Network | Timeout | Rate limit | On failure |
 | --- | --- | --- | --- | --- | --- |
-| Midnight indexer + node (Preview) | indexer API v4 | preview (testnet) | `scripts/deploy.ts`: 30 s for the stale-deployment query; SDK calls TODO | TODO | 503 seen on 2026-11-15; flow tests did not complete. TODO: retry with backoff |
+| Midnight indexer + node (Preview) | indexer API v4 | preview (testnet) | `scripts/deploy.ts`: 30 s for the stale-deployment query; wallet sync bounded by `MIDNIGHT_SYNC_TIMEOUT_MS`; other SDK calls TODO (next slice) | TODO | Observed: HTTP 503 from the indexer on 2026-11-15 (that run stopped after `createListing`). On 2026-11-20, 6 reads about 2 minutes apart (06:17:59–06:28:07 UTC) all returned HTTP 200 from both indexer and node, with the tip advancing about 20 blocks per interval (189931 to 190032), and the full flow test passed. No retry or backoff yet: one 503 fails the run. TODO (next slice): retry reads with backoff |
 | Blockfrost (Preprod) | api v0 | preprod (testnet) | TODO | TODO (project id quota) | TODO |
 | Local network (`compose.yml`) | — | undeployed | `scripts/deploy.ts`: 5 s reachability check on node and indexer | — | Deploy stops before sending anything |
-| Proof server | `midnightntwrk/proof-server:9.0.0` | local Docker | `scripts/deploy.ts`: 5 s reachability check; proving calls TODO | — | Deploy stops before sending anything |
-| midnight-js SDK / wallet-sdk | 5.0.0 / 2.0.0 | — | — | — | — |
+| Proof server | `midnightntwrk/proof-server:9.0.0` | local Docker | `scripts/deploy.ts`: 5 s reachability check; proving calls TODO (next slice: retry connection errors only, never its own timeout, so proving jobs do not stack) | — | Deploy stops before sending anything. At start-up the container downloads proving parameters from `srs.midnight.network` and exits if TLS fails (seen 2026-11-20 behind an HTTPS-scanning antivirus; fixed by giving it a CA bundle via `SSL_CERT_FILE`) |
+| midnight-js SDK / wallet-sdk | 5.0.0 / 2.0.0 | — | Wallet sync: `Rx.timeout` in `syncWallet`. Indexer reads, proving and submit: none of our own yet (next slice) | — | Errors propagate unchanged; submit is never retried (unknown outcome) |
 | tNIGHT faucet | — | preview / preprod | — | — | Manual top-up; tests assume a funded wallet |
 | GitHub Pages | actions/deploy-pages@v4 | — | — | — | Re-run the workflow |
 
 Transaction fees: paid in DUST generated from tNIGHT held by the wallet (`scripts/wait-for-dust.ts`). No other money moves through the product.
+
+## Deployments
+| Network | Address | What it is | Issuer key |
+| --- | --- | --- | --- |
+| preview | `a92bebe0a8e3c54e142a583da8caaa77dab1ec401a40c1d545efba98a6c4ece6` | Verification-only test deploy (2026-11-20, blocks 190065–190081); list, apply and low-income rejection verified | Random, not saved: cannot attest again |
+| preview | `e6123a996294cbdf608d8909af52d2a8e5b1bbd636e6fb49e1f93db79a0c96bb` | Partial deploy from 2026-11-15: deploy and `createListing` (block 122818) only | Random, not saved |
+
+Every run of the network test deploys a new contract with a random issuer key that is never saved. A deployment meant for use is made with `npm run deploy`, which keeps the issuer secret in `.tenant-proof/issuer.json`; none exists yet.

@@ -250,9 +250,8 @@ export class MidnightWalletProvider implements Ledger9WalletProvider {
     const { seeds, keystore } = built;
     const wallet = await restoreSavedState(logger, env, builder, dustOptions, built.wallet, seeds.masterSeed);
 
-    logger.info(
-      `Wallet built from ${secret.kind}; master seed: ${seeds.masterSeed.slice(0, 8)}...`,
-    );
+    // Never log any part of the seed or mnemonic.
+    logger.info(`Wallet built from ${secret.kind}.`);
 
     return new MidnightWalletProvider(logger, wallet, seeds, keystore);
   }

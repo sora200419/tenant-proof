@@ -11,7 +11,7 @@ A landlord renting out a room usually relies on payslips that the tenant supplie
 | Contract | Compiles with the Compact compiler 0.36.0 (language 0.28), including proving keys for all three circuits |
 | Tests | 17 in-memory tests pass (`npm run test:sim`) |
 | Browser demo | Runs the compiled contract in the page on the official Compact runtime. Live: https://sora200419.github.io/tenant-proof/ |
-| Public network | **Deployed to Preview (partial).** Contract `e6123a996294cbdf608d8909af52d2a8e5b1bbd636e6fb49e1f93db79a0c96bb`. The deploy step passed; the three flow tests (list, apply, low-income rejection) were blocked by a Preview indexer outage (HTTP 503) and are not yet verified on-chain. Not run on Preprod |
+| Public network | **Flow verified on Preview (2026-11-20).** The network test deployed a test contract, `a92bebe0a8e3c54e142a583da8caaa77dab1ec401a40c1d545efba98a6c4ece6`, and the list, apply and low-income rejection tests passed against it. This is a verification-only test deploy: its issuer key was not saved, so it cannot attest again. A deployment meant for use is made with `npm run deploy`, which keeps the issuer key in `.tenant-proof/issuer.json`; none exists yet. Not run on Preprod |
 
 The browser demo executes the real circuit logic and every `assert`, but it does not generate a zero-knowledge proof or submit a transaction. That needs a proof server and a funded wallet (see [Deploying](#deploying)).
 
@@ -85,7 +85,19 @@ The compiled contract (`contract/managed/tenant-proof/contract`) is committed, s
 
 [src/test/tenant-proof.test.ts](src/test/tenant-proof.test.ts) is the same flow against a real network (deploy, attest, list, apply, and a rejected low-income applicant).
 
-**Preview result so far:** the deploy test passed and the contract is live at `e6123a996294cbdf608d8909af52d2a8e5b1bbd636e6fb49e1f93db79a0c96bb`. The three flow tests did not complete: the Preview indexer returned HTTP 503 during those calls. They have not been verified on-chain yet.
+**Preview result (2026-11-20):** all four tests passed. The Preview indexer shows the test contract `a92bebe0a8e3c54e142a583da8caaa77dab1ec401a40c1d545efba98a6c4ece6` with these actions:
+
+| Block | Action | Transaction |
+|---|---|---|
+| 190065 | deploy | `7edda9884d3ac09ca022ebbeb281b2c580fab457fb007ae7ad588f28ec02c292` |
+| 190069 | `createListing` | `9b7c9204d8239eaf5653c782723311a206e89825ff3d2855ec93a86f2ed74f8c` |
+| 190073 | `attest` (eligible tenant) | `76189a4ed8c2576d3f2e03e18baeeb64d6e627955f3cb14f7ba7d1dfaadb9729` |
+| 190077 | `apply` | `bb9a2c3aa7bfe5b6a1c0ff4d221ca95bfec36ae39e14e5a4701be783df2dcdcb` |
+| 190081 | `attest` (low-income tenant) | `515b131924b92dcdaaca2b595a1ccbc33751017bbed56afbf7342bccbb1c95c2` |
+
+The low-income tenant's `apply` was rejected by the circuit before anything was submitted, so there is no second `apply`. Each run of the network test deploys a new contract with a random issuer key that is not saved; that contract is for verification only and cannot attest again.
+
+An earlier run on 2026-11-15 deployed `e6123a996294cbdf608d8909af52d2a8e5b1bbd636e6fb49e1f93db79a0c96bb`. Only its deploy and `createListing` (block 122818) reached the chain before the Preview indexer returned HTTP 503. That partial deploy is not used.
 
 ## Deploying
 
@@ -100,7 +112,9 @@ npx vitest run --exclude 'src/**/*.sim.test.ts'
 
 The wallet is read from `MIDNIGHT_PREVIEW_ALICE_MNEMONIC` and the private-state password from `MIDNIGHT_PRIVATE_STATE_PASSWORD`, both in a gitignored `.env.preview` (see [.env.example](.env.example)). The issuer's contract secret is created on first deploy in `.tenant-proof/issuer.json`, also gitignored.
 
-A first run from a fresh wallet syncs from genesis and takes about 78 minutes on Preview. Later runs reuse the saved state in `.wallet-state/`.
+A first run from a fresh wallet syncs from genesis and takes about 78 minutes on Preview. Later runs reuse the saved state in `.wallet-state/` (the 2026-11-20 run synced in about 2 minutes).
+
+If antivirus software on your machine inspects HTTPS (it re-signs certificates with its own root), the proof server container cannot verify `srs.midnight.network` and exits at start-up with `UnknownIssuer`. Give the container a CA bundle that also holds that root, mounted read-only and named in `SSL_CERT_FILE`. The proof server still checks every downloaded parameter file against its known hash.
 
 ## Limits of this version
 
@@ -117,7 +131,7 @@ A first run from a fresh wallet syncs from genesis and takes about 78 minutes on
 
 ## Roadmap
 
-- Deploy to Preview, then connect the UI to the Lace wallet and a proof server
+- Deploy to Preview with `npm run deploy` (issuer key kept), then connect the UI to the Lace wallet and a proof server
 - Expiry and revocation for attestations
 - Several issuers, and alternative criteria such as savings ≥ 12× rent
 - Listings owned by the landlord's key, with a configurable multiplier and the ability to close

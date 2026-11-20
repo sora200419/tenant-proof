@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // TypeScript implementations of the contract's witnesses: the private inputs a
-// circuit reads from the user's own device. Nothing here is sent anywhere; the
-// proof server only learns it inside the zero-knowledge proof it builds.
+// circuit reads from the user's own device. They are never written to the
+// ledger, but the proof server receives them to build the proof, so it must be
+// the user's own (127.0.0.1:6300); a remote one would see income and salt.
 // This file also runs in the browser, so no node:* imports.
 import { type Ledger, type Witnesses } from './managed/tenant-proof/contract/index.js';
 import { type WitnessContext } from '@midnight-ntwrk/midnight-js-protocol/v9/compact-runtime';

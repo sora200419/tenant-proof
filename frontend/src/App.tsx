@@ -213,7 +213,7 @@ export default function App() {
         saltHex: tenant.credential?.saltHex ?? newSecretKeyHex(),
         listingLabel: applyLabel,
       });
-      return `Eligible for "${applyLabel}". Application ${shortHex(res.applicationIdHex)} recorded; the income was never revealed.`;
+      return `Eligible for "${applyLabel}". Application ${shortHex(res.applicationIdHex)} recorded; the income was not written to the ledger, and the listing shows it is at least 3× the rent.`;
     });
 
   const addStranger = () => {
@@ -316,7 +316,7 @@ export default function App() {
         <div>
           <h1>TenantProof</h1>
           <p className="subtitle">
-            Prove “my income is at least 3× the rent” to a landlord without revealing what you earn. Built on Midnight’s Compact.
+            Show a landlord a source-verified income signal from a trusted issuer, “my income is at least 3× the rent”, without sending payslips. Built on Midnight’s Compact.
           </p>
         </div>
         <div className="topbar-actions">
@@ -337,7 +337,7 @@ export default function App() {
           <div className="tabs">
             {(['issuer', 'landlord', 'tenant'] as const).map((r, i) => (
               <button key={r} className={`tab ${tab === r ? 'active' : ''}`} onClick={() => setTab(r)}>
-                {i + 1}. {r === 'issuer' ? 'Issuer (employer)' : r === 'landlord' ? 'Landlord' : 'Tenant'}
+                {i + 1}. {r === 'issuer' ? 'Issuer (mock)' : r === 'landlord' ? 'Landlord' : 'Tenant'}
               </button>
             ))}
           </div>
@@ -345,6 +345,9 @@ export default function App() {
           {tab === 'issuer' && (
             <div className="card">
               <h2>Attest a tenant’s income</h2>
+              <p className="hint">
+                <strong>Mock issuer (simulated).</strong> In real use this is an employer, university or bank. Here the demo plays that role, and it is trusted to state the income truthfully.
+              </p>
               <p className="hint">
                 The issuer publishes only a salted commitment to <code>(income, tenant public key)</code>. The income and the salt go to the tenant privately.
               </p>
@@ -359,7 +362,7 @@ export default function App() {
                 </select>
               </label>
               <label className="field">
-                <span>Verified monthly income (stays off-chain)</span>
+                <span>Attested monthly income (the issuer is trusted; stays off-chain)</span>
                 <input inputMode="numeric" value={attestIncome} onChange={(e) => setAttestIncome(e.target.value)} />
               </label>
               <div className="btn-row">
@@ -610,7 +613,7 @@ export default function App() {
               <span className="pill private">never on the ledger</span>
             </div>
             <p className="hint">
-              Viewing as <strong>{localView.role}</strong>. These values stay on the user’s device and reach the circuit only as witness inputs.
+              Viewing as <strong>{localView.role}</strong>. These values reach the circuit only as witness inputs and are never written to the ledger. In this demo they are not sent to any network (the issuer’s Copy button puts a credential on the clipboard to hand to the tenant); with real proofs they also go to the user’s own local proof server.
             </p>
             <div className="kv-list">
               <div className="kv">

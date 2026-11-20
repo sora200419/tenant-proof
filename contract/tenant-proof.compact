@@ -1,9 +1,11 @@
 // This file is part of TenantProof.
 // SPDX-License-Identifier: Apache-2.0
 //
-// TenantProof: a tenant proves "my monthly income is at least 3x the rent of
-// this listing" to a landlord, without revealing the income, the payslip, or
-// which issuer attestation is theirs.
+// TenantProof: an issuer attests a tenant's income, and the tenant proves "my
+// attested monthly income is at least 3x the rent of this listing" to a
+// landlord. The landlord learns that fact, not the income or the payslip. The
+// issuer already knows the income and is trusted. The ledger does not show
+// which issuer attestation is the tenant's.
 
 pragma language_version 0.28;
 
@@ -33,7 +35,7 @@ export ledger listings: Map<Bytes<32>, Uint<32>>;
 export ledger applications: Map<Bytes<32>, Bytes<32>>;
 
 // ---------------------------------------------------------------------------
-// Private inputs (only ever on the user's device)
+// Private inputs (user's device and their local proof server; never on the ledger)
 // ---------------------------------------------------------------------------
 
 witness secretKey(): Bytes<32>;
@@ -83,7 +85,7 @@ export circuit createListing(listingId: Bytes<32>, rent: Uint<32>): [] {
   listings.insert(id, r);
 }
 
-// Tenant: prove income >= 3 x rent for a listing, without revealing income.
+// Tenant: prove income >= 3 x rent for a listing, without writing the income to the ledger.
 export circuit apply(listingId: Bytes<32>): [] {
   const id = disclose(listingId);
   assert(listings.member(id), "Unknown listing");

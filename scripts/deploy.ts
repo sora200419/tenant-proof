@@ -60,6 +60,11 @@ import {
   type DeploymentRecord,
 } from '../src/deployments.js';
 import { deployables } from '../contract/deploy-args.js';
+import { installConsoleRedaction, READ_RETRY_KINDS, sanitizeError, withRetry } from '../src/retry.js';
+
+// Third-party clients (the Polkadot RPC client among them) log through the
+// console, sometimes with the node URL; redact before anything connects.
+installConsoleRedaction();
 
 // Required for GraphQL subscriptions in Node.js
 // @ts-expect-error WebSocket global assignment for apollo
@@ -92,30 +97,47 @@ async function answers(url: string): Promise<boolean> {
   try {
     await fetch(url, { signal: AbortSignal.timeout(5_000) });
     return true;
-  } catch {
+  } catch (err) {
+    logger.debug(sanitizeError(err, 'reachability check').message);
     return false;
   }
 }
 
 /**
  * The contracts in `deployments` deployed on a chain that no longer exists:
- * the block at their height has another hash, or the chain is shorter. If the
- * indexer can't be asked, every record is kept.
+ * the block at their height has another hash, or the chain is shorter. The
+ * indexer read is retried with backoff (30 s per attempt); if it still can't
+ * be asked, every record is kept.
  */
 async function staleDeployments(indexer: string, deployments: Record<string, DeploymentRecord>): Promise<string[]> {
+  type BlockCheck = { tip?: { height: number } | null; at?: { hash: string } | null };
   const stale: string[] = [];
   for (const [contract, record] of Object.entries(deployments)) {
     const height = Math.trunc(record.blockHeight);
-    let data: { tip?: { height: number } | null; at?: { hash: string } | null } | undefined;
+    let data: BlockCheck | undefined;
     try {
-      const res = await fetch(indexer, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ query: `query { tip: block { height } at: block(offset: { height: ${height} }) { hash } }` }),
-        signal: AbortSignal.timeout(30_000),
-      });
-      data = res.ok ? ((await res.json()) as { data?: typeof data }).data : undefined;
-    } catch {
+      data = await withRetry(
+        async () => {
+          const res = await fetch(indexer, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ query: `query { tip: block { height } at: block(offset: { height: ${height} }) { hash } }` }),
+            signal: AbortSignal.timeout(30_000),
+          });
+          if (!res.ok) throw Object.assign(new Error(`indexer answered HTTP ${res.status}`), { status: res.status });
+          return ((await res.json()) as { data?: BlockCheck }).data;
+        },
+        {
+          label: 'stale-deployment check',
+          attempts: 3,
+          baseDelayMs: 2_000,
+          maxDelayMs: 10_000,
+          retryOn: READ_RETRY_KINDS,
+          onRetry: ({ attempt, delayMs, reason }) => logger.warn(`${reason}; retry ${attempt} in ${delayMs} ms`),
+        },
+      );
+    } catch (err) {
+      logger.warn(sanitizeError(err, `stale-deployment check for ${contract}`).message);
       data = undefined;
     }
     if (!data?.tip) {
@@ -214,7 +236,7 @@ try {
     dbName: fileURLToPath(new URL(`../.mnkit/private-state/${network}`, import.meta.url)),
     storeName: 'tenant-proof-deploy',
     password,
-  });
+  }, logger);
   const withPrivateState = entry.privateStateId !== undefined;
 
   logger.info(`Deploying ${name} to '${network}'...`);
@@ -240,8 +262,8 @@ try {
   logger.info(`✔ ${name} deployed to '${network}' at ${tx.contractAddress} (block ${tx.blockHeight})`);
   logger.info(`  Recorded in ${file}`);
 } catch (err) {
-  logger.error(`deploy failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+  logger.error(sanitizeError(err, 'deploy failed').message);
   process.exitCode = 1;
 } finally {
-  await wallet.stop().catch((err: unknown) => logger.warn(`stop() failed: ${String(err)}`));
+  await wallet.stop().catch((err: unknown) => logger.warn(sanitizeError(err, 'stop() failed').message));
 }

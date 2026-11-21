@@ -97,6 +97,8 @@ The compiled contract (`contract/managed/tenant-proof/contract`) is committed, s
 
 The low-income tenant's `apply` was rejected by the circuit before anything was submitted, so there is no second `apply`. Each run of the network test deploys a new contract with a random issuer key that is not saved; that contract is for verification only and cannot attest again.
 
+**Preview run with retries and log redaction (2026-11-20, 11:57–12:00 UTC):** all four tests passed again, this time through the retry wrappers in `buildProviders`. Test contract `c3b7b61ddfd2414f166fffe57e4950777e66f1b82c86f6dc8a1f41d1c7f6ff02`: deploy at block 193333 (`112601f09dc681c2fa1374e7dc20c54f28aa5cbfb32eab0d15ad6f4eb0a5bb1d`), `createListing` 193337, `attest` 193341, `apply` 193345, `attest` (low-income tenant) 193349. No retry was needed during the run. The Polkadot client's 6 disconnect lines printed `<url>` instead of the node URL.
+
 An earlier run on 2026-11-15 deployed `e6123a996294cbdf608d8909af52d2a8e5b1bbd636e6fb49e1f93db79a0c96bb`. Only its deploy and `createListing` (block 122818) reached the chain before the Preview indexer returned HTTP 503. That partial deploy is not used.
 
 ## Deploying
@@ -113,6 +115,8 @@ npx vitest run --exclude 'src/**/*.sim.test.ts'
 The wallet is read from `MIDNIGHT_PREVIEW_ALICE_MNEMONIC` and the private-state password from `MIDNIGHT_PRIVATE_STATE_PASSWORD`, both in a gitignored `.env.preview` (see [.env.example](.env.example)). The issuer's contract secret is created on first deploy in `.tenant-proof/issuer.json`, also gitignored.
 
 A first run from a fresh wallet syncs from genesis and takes about 78 minutes on Preview. Later runs reuse the saved state in `.wallet-state/` (the 2026-11-20 run synced in about 2 minutes).
+
+**Retries and timeouts.** The contract providers built by `buildProviders` go through [src/retry.ts](src/retry.ts); the wallet SDK's own sync and balancing traffic does not. Indexer reads and waits are retried on timeouts, connection errors, HTTP 5xx and 429, with backoff of a few seconds up to 30 s. Our layer retries proving only when the proof server refused the connection or answered 5xx/429. It does not retry a proving timeout or a dropped connection, because the job may still be running on the proof server. The SDK's proof client underneath does re-send a proof up to 3 times after a dropped connection, so a reset in the middle of a proof can still start a second job. Submitting a transaction is never retried, because a failed submit may still land; read chain state before trying again. Error lines our scripts log, and anything written through the console in the deploy script, the wait-for-dust script and the network test, have URLs and the Blockfrost `project_id` removed. Errors that are passed on unchanged (a 4xx, a failed circuit check) and that Vitest prints for a failing test are not redacted.
 
 If antivirus software on your machine inspects HTTPS (it re-signs certificates with its own root), the proof server container cannot verify `srs.midnight.network` and exits at start-up with `UnknownIssuer`. Give the container a CA bundle that also holds that root, mounted read-only and named in `SSL_CERT_FILE`. The proof server still checks every downloaded parameter file against its known hash.
 

@@ -30,6 +30,7 @@ import { getConfig } from '../config.js';
 import { buildProviders, ledgerState, type TenantProofCircuits, type TenantProofProviders } from '../providers.js';
 import { createTenantProofPrivateState, type TenantProofPrivateState } from '../../contract/witnesses.js';
 import { applicationIdFor, issueAttestation, listingIdFromLabel, randomBytes32, tenantPublicKey } from '../attest.js';
+import { installConsoleRedaction } from '../retry.js';
 import {
   CompiledTenantProofContract,
   Contract,
@@ -46,6 +47,10 @@ import {
 // Required for GraphQL subscriptions in Node.js
 // @ts-expect-error WebSocket global assignment for apollo
 globalThis.WebSocket = WebSocket;
+
+// Third-party clients (the Polkadot RPC client among them) log through the
+// console, sometimes with the node URL; redact before anything connects.
+installConsoleRedaction();
 
 const PRIVATE_STATE_ID = 'AliceTenantProofState';
 
@@ -121,7 +126,7 @@ describe(`Tenant Proof Contract (${network})`, () => {
       );
     }
 
-    providers = buildProviders(wallet, zkConfigPath, config);
+    providers = buildProviders(wallet, zkConfigPath, config, undefined, logger);
     // @generated-stub begin contract-providers-init sha=e3b0c44298fc
     // @generated-stub end contract-providers-init
     logger.info(`Providers initialized on '${network}'. Ready to test!`);

@@ -70,6 +70,7 @@ Ordered, each demoable. This list records the slices only; none is started by th
 | S0 | CI | A GitHub Actions workflow runs `npm run typecheck`, `npm --prefix frontend run typecheck` and `npm run test:sim` on push and PR (`pages.yml` stays separate) |
 | S1 | Honest framing | README, UI and docs say "source-verified signal"; privacy claims stay per `docs/SECURITY.md`; the UI marks the issuer as a mock |
 | S2 | Preview flow verified | The three network flow tests pass on Preview |
+| — | Network resilience | Indexer reads and waits retry transient failures with backoff and timeouts; proving retries only a refused connection or 5xx/429; submit is never retried; logged errors carry no URL or Blockfrost `project_id`; the Preview flow passes through the wrapped providers |
 | S3 | Wallet integration | apply / createListing / attest go through Lace and a proof server |
 | S4 | Configurable multiplier, landlord-owned listings | Listings bound to the landlord's key; the landlord sets the multiplier; listings can be closed |
 | S5 | Expiry, then revocation | Attestations can expire, then be revoked |

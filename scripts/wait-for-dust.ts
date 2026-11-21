@@ -25,6 +25,11 @@ import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import type { EnvironmentConfiguration } from '@midnight-ntwrk/testkit-js';
 import { getConfig } from '../src/config.js';
 import { MidnightWalletProvider, syncWallet, waitForDust } from '../src/wallet.js';
+import { installConsoleRedaction, sanitizeError } from '../src/retry.js';
+
+// Third-party clients (the Polkadot RPC client among them) log through the
+// console, sometimes with the node URL; redact before anything connects.
+installConsoleRedaction();
 
 // Must match src/test/tenant-proof.test.ts.
 const ALICE_SEED = '0000000000000000000000000000000000000000000000000000000000000001';
@@ -61,8 +66,8 @@ try {
   await syncWallet(logger, wallet.wallet, timeoutMs);
   await waitForDust(logger, wallet.wallet, minCoins, timeoutMs, config.indexer);
 } catch (err) {
-  logger.error(`wait-for-dust failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+  logger.error(sanitizeError(err, 'wait-for-dust failed').message);
   process.exitCode = 1;
 } finally {
-  await wallet.stop().catch((err: unknown) => logger.warn(`stop() failed: ${String(err)}`));
+  await wallet.stop().catch((err: unknown) => logger.warn(sanitizeError(err, 'stop() failed').message));
 }

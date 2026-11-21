@@ -28,6 +28,10 @@ import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-pri
 import { type MidnightWalletProvider } from './wallet.js';
 import { type NetworkConfig } from './config.js';
 import { type ImpureCircuits } from '../contract/index.js';
+import { DEFAULT_WRAP_OPTIONS, wrapProofProvider, wrapPublicDataProvider, wrapSubmit } from './retry.js';
+
+/** Where retry warnings go: a pino logger or anything with `warn(string)`. */
+export type RetryLogger = { warn: (message: string) => void };
 
 // The set of callable circuit ids, derived from the compiled contract's
 // generated types. This tracks whatever circuits your .compact exports, so you
@@ -56,14 +60,27 @@ export type PrivateStateStore = {
  * The providers for one contract. Without `privateState` the store is a
  * throwaway one for tests: a fresh name each call, under ./midnight-level-db.
  * scripts/deploy.ts passes a persistent store instead.
+ *
+ * These providers' calls go through src/retry.ts: indexer reads and waits
+ * retry transient failures with backoff; our layer retries proving only after
+ * a refused connection or a 5xx/429 answer (not its own timeout or a reset,
+ * which may leave the job running; the SDK's client below still re-sends
+ * after a reset, see src/retry.ts); our layer never retries a submit. `logger` receives a sanitised line
+ * per retry.
  */
 export function buildProviders(
   wallet: MidnightWalletProvider,
   zkConfigPath: string,
   config: NetworkConfig,
   privateState?: PrivateStateStore,
+  logger?: RetryLogger,
 ): TenantProofProviders {
   const zkConfigProvider = new NodeZkConfigProvider<TenantProofCircuits>(zkConfigPath);
+  const retry = {
+    ...DEFAULT_WRAP_OPTIONS,
+    onRetry: ({ attempt, delayMs, reason }: { attempt: number; delayMs: number; reason: string }) =>
+      logger?.warn(`${reason}; retry ${attempt} in ${delayMs} ms`),
+  };
   return {
     privateStateProvider: levelPrivateStateProvider({
       ...(privateState ? { midnightDbName: privateState.dbName } : {}),
@@ -75,19 +92,19 @@ export function buildProviders(
       privateStoragePasswordProvider: () => privateState?.password ?? 'TenantProof-Test-Password',
       accountId: wallet.getCoinPublicKey(),
     }),
-    publicDataProvider: indexerPublicDataProvider(
-      config.indexer,
-      config.indexerWS,
+    publicDataProvider: wrapPublicDataProvider(
+      indexerPublicDataProvider(config.indexer, config.indexerWS),
+      retry,
     ),
     zkConfigProvider,
-    proofProvider: httpClientProofProvider(
-      config.proofServer,
-      zkConfigProvider,
+    proofProvider: wrapProofProvider(
+      httpClientProofProvider(config.proofServer, zkConfigProvider),
+      retry,
     ),
     // Midnight.js 5 providers are tagged with the ledger eras they serve. The
     // wallet is ledger 9 only; these lift it into the tagged interfaces.
     walletProvider: createLedger9WalletProvider(wallet),
-    midnightProvider: createLedger9MidnightProvider((tx) => wallet.submitTx(tx)),
+    midnightProvider: createLedger9MidnightProvider(wrapSubmit((tx) => wallet.submitTx(tx))),
     config: { networkId: config.networkId, ttlSeconds: TX_TTL_SECONDS },
   };
 }

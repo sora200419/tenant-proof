@@ -26,8 +26,8 @@ TODO: next delivery date.
 
 ## Acceptance criteria (draft)
 - [x] The list, apply and low-income-rejection flow tests pass on Preview against a deployed contract.
-- [ ] The UI connects to the Lace wallet and a proof server, generates a proof and submits a real transaction.
-- [ ] Each role uses its own device and keys; no role's secrets are held in another role's browser.
+- [x] The UI connects to the Lace wallet and a proof server, generates a proof and submits a real transaction. Done in S3, 2026-11-22, local run only (Preview; see README "Wallet mode" for the transactions read back from the indexer).
+- [ ] Each role uses its own device and keys; no role's secrets are held in another role's browser. Partly: wallet mode holds one role per tab in separate encrypted stores, but they share one browser origin; separate profiles or devices are not enforced.
 - [ ] Every privacy statement in README, UI and docs matches the per-party table in `docs/SECURITY.md`.
 
 ## Assumptions to validate
@@ -71,7 +71,7 @@ Ordered, each demoable. This list records the slices only; none is started by th
 | S1 | Honest framing | README, UI and docs say "source-verified signal"; privacy claims stay per `docs/SECURITY.md`; the UI marks the issuer as a mock |
 | S2 | Preview flow verified | The three network flow tests pass on Preview |
 | — | Network resilience | Indexer reads and waits retry transient failures with backoff and timeouts; proving retries only a refused connection or 5xx/429; submit is never retried; logged errors carry no URL or Blockfrost `project_id`; the Preview flow passes through the wrapped providers |
-| S3 | Wallet integration | apply / createListing / attest go through Lace and a proof server |
+| S3 | Wallet integration | apply / createListing / attest go through Lace and a proof server. Done 2026-11-22 (local run only; the hosted page stays demo mode) |
 | S4 | Configurable multiplier, landlord-owned listings | Listings bound to the landlord's key; the landlord sets the multiplier; listings can be closed |
 | S5 | Expiry, then revocation | Attestations can expire, then be revoked |
 | S6 | Malaysian demo script | Young working-person protagonist, public evidence only, A1-A5 shown as unvalidated |

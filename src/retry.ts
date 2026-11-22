@@ -213,7 +213,8 @@ export function backoffDelay(retry: number, baseDelayMs: number, maxDelayMs: num
   return Math.round(ceiling / 2 + random() * (ceiling / 2));
 }
 
-function withTimeout<T>(promise: Promise<T>, label: string, ms: number): Promise<T> {
+/** Rejects with AttemptTimeoutError after `ms`; the call itself keeps running and its outcome is dropped. */
+export function withTimeout<T>(promise: Promise<T>, label: string, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new AttemptTimeoutError(label, ms)), ms);

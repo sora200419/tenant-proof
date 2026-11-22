@@ -14,7 +14,7 @@ These two files are the source of truth for fields. This document records entiti
 | Attestation | Leaf `persistentCommit([income, tenantPk], salt)` in a `HistoricMerkleTree<10>`; plus `attestationCount` | Ledger | Published by the issuer |
 | Credential | `income` + `salt` the issuer hands the tenant off-chain for one attestation | Tenant device | Tenant |
 | Listing | `listingId → rent` (`Map<Bytes<32>, Uint<32>>`) | Ledger | Whoever created it (not bound to a key yet) |
-| Application | `applicationId → listingId`, where `applicationId = hash("tenantproof:app:", listingId, tenant secret)` | Ledger | Tenant (unlinked to them on the ledger) |
+| Application | `applicationId → listingId`, where `applicationId = hash("tenantproof:app:", listingId, tenant secret)` | Ledger | Tenant (unlinked to them in the contract's public state; the transactions that carried it are separate public data, see docs/SECURITY.md "Wallet (Lace)") |
 | Private state | `secretKey`, and for tenants `income?`, `incomeSalt?` | User device | Each user |
 
 ## Relationships
@@ -25,7 +25,7 @@ erDiagram
   CREDENTIAL ||--|| ATTESTATION : "opens (off-chain)"
   LANDLORD ||--o{ LISTING : creates
   LISTING ||--o{ APPLICATION : receives
-  TENANT ||--o{ APPLICATION : "submits (not linked on ledger)"
+  TENANT ||--o{ APPLICATION : "submits (not linked in the contract state)"
 ```
 
 ## Invariants (enforced by the circuits)

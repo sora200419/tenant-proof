@@ -2,9 +2,10 @@
 //
 // The contract's compiler-generated JavaScript runs here, in the page, on the
 // official Compact runtime: the same circuits and asserts that a deployed
-// contract enforces. What this demo does NOT do is build a zero-knowledge
-// proof or submit a transaction; that needs a proof server and a wallet.
-import { Contract, ledger, pureCircuits } from '../../../contract/managed/tenant-proof/contract/index.js';
+// contract enforces. This in-page demo (demo mode) does NOT build a
+// zero-knowledge proof or submit a transaction; wallet mode does both, through
+// network-client.ts, the user's Lace wallet and their local proof server.
+import { Contract, ledger, pureCircuits, type Ledger } from '../../../contract/managed/tenant-proof/contract/index.js';
 import { createTenantProofPrivateState, witnesses } from '../../../contract/witnesses';
 import { Sim, collectPublicBytes } from '../../../src/test/sim';
 import { applicationIdFor, issueAttestation, listingIdFromLabel, randomBytes32 } from '../../../src/attest';
@@ -112,7 +113,11 @@ const deploySim = (issuerSecretKey: Uint8Array) =>
   });
 
 function readSnapshot(sim: TenantProofSim): LedgerSnapshot {
-  const l = sim.ledger();
+  return snapshotFromLedger(sim.ledger());
+}
+
+/** What the UI shows of a decoded public ledger, from the simulator or from the indexer. */
+export function snapshotFromLedger(l: Ledger): LedgerSnapshot {
   const listings: LedgerListing[] = [];
   for (const [id, rent] of l.listings) {
     listings.push({ idHex: toHex(id), label: decodeListingLabel(id), rent: rent.toString() });

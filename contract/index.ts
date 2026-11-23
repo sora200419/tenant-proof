@@ -29,19 +29,16 @@ export {
   type ImpureCircuits,
   type PureCircuits,
 } from './managed/tenant-proof/contract/index.js';
-import { Contract } from './managed/tenant-proof/contract/index.js';
-import { witnesses } from './witnesses.js';
+import { tenantProofContractWithWitnesses } from './browser.js';
 // fileURLToPath, not URL.pathname: on Windows the pathname is "/C:/...", which
 // path.resolve turns into "C:\C:\..." and the artifacts are never found.
 const currentDir = path.resolve(fileURLToPath(new URL('.', import.meta.url)));
 export const zkConfigPath = path.resolve(currentDir, 'managed', 'tenant-proof');
 
-export const CompiledTenantProofContract = CompiledContract.make(
-  'TenantProofContract',
-  Contract,
-).pipe(
-  CompiledContract.withWitnesses(witnesses),
-  CompiledContract.withCompiledFileAssets(zkConfigPath),
+// Data-first call: the value `pipe` returns is not itself pipeable at runtime.
+export const CompiledTenantProofContract = CompiledContract.withCompiledFileAssets(
+  tenantProofContractWithWitnesses,
+  zkConfigPath,
 );
 
 // Any other contract in this example (a test-only token the tests mint coins

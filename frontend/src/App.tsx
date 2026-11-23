@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import WalletMode from './WalletMode';
 import {
   TenantProofDemo,
   UINT32_MAX,
@@ -52,7 +53,41 @@ const initialTenants = (): Tenant[] => [makeTenant('alice', 'Alice'), makeTenant
 
 let logSeq = 0;
 
+type Mode = 'demo' | 'wallet';
+
+/** Demo mode (in-page simulator, every role in this tab) or wallet mode (one role, Lace, local proof server, Preview). */
 export default function App() {
+  const [mode, setMode] = useState<Mode>(() =>
+    new URLSearchParams(window.location.search).get('mode') === 'wallet' ? 'wallet' : 'demo',
+  );
+  const choose = (m: Mode) => {
+    setMode(m);
+    const url = new URL(window.location.href);
+    url.searchParams.set('mode', m);
+    window.history.replaceState(null, '', url);
+  };
+  return (
+    <>
+      <nav className="mode-switch page" aria-label="Mode">
+        <button className={`tab ${mode === 'demo' ? 'active' : ''}`} onClick={() => choose('demo')}>
+          Demo mode: every role's keys in this tab, in-page simulator, no proof, no transaction
+        </button>
+        <button className={`tab ${mode === 'wallet' ? 'active' : ''}`} onClick={() => choose('wallet')}>
+          Wallet mode: one role, your Lace wallet, your local proof server, Preview testnet
+        </button>
+      </nav>
+      {mode === 'demo' ? (
+        <DemoMode />
+      ) : (
+        <div className="page">
+          <WalletMode />
+        </div>
+      )}
+    </>
+  );
+}
+
+function DemoMode() {
   const [issuerSk, setIssuerSk] = useState(newSecretKeyHex);
   const [landlordSk, setLandlordSk] = useState(newSecretKeyHex);
   const [tenants, setTenants] = useState<Tenant[]>(initialTenants);
@@ -320,8 +355,8 @@ export default function App() {
           </p>
         </div>
         <div className="topbar-actions">
-          <span className="badge" title="The compiled contract runs in this page. No proof is generated and nothing is sent to a network.">
-            Local simulator · no on-chain proof
+          <span className="badge" title="The compiled contract runs in this page. No proof is generated and nothing is sent to a network. Every role's keys are held in this one tab.">
+            Demo mode · local simulator · no on-chain proof
           </span>
           <button className="btn secondary" onClick={seedDemo} disabled={busy || !snapshot}>
             Load demo data
@@ -599,7 +634,7 @@ export default function App() {
                   ))}
                 </ul>
                 <p className="unlink-note muted">
-                  Each id is a hash of the listing and {tenant.name}’s secret key, so the ledger does not show
+                  Each id is a hash of the listing and {tenant.name}’s secret key, so the contract’s public state does not show
                   {myApplications.length > 1 ? ' that these ids belong to the same person' : ' whose id this is'}. The issuer knows incomes and may still narrow it down when few
                   tenants qualify.
                 </p>
@@ -613,7 +648,7 @@ export default function App() {
               <span className="pill private">never on the ledger</span>
             </div>
             <p className="hint">
-              Viewing as <strong>{localView.role}</strong>. These values reach the circuit only as witness inputs and are never written to the ledger. In this demo they are not sent to any network (the issuer’s Copy button puts a credential on the clipboard to hand to the tenant); with real proofs they also go to the user’s own local proof server.
+              Viewing as <strong>{localView.role}</strong>. These values reach the circuit only as witness inputs and are never written to the ledger. In demo mode they are not sent to any network (the issuer’s Copy button puts a credential on the clipboard to hand to the tenant); in wallet mode they also go to the user’s own local proof server, which builds the proof.
             </p>
             <div className="kv-list">
               <div className="kv">

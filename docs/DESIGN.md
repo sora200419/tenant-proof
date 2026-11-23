@@ -8,7 +8,7 @@ A single-page demo (`frontend/src/App.tsx`, `frontend/src/styles.css`) built to 
 - A right-hand column: privacy-check banner, public ledger, the selected tenant's applications, and that tenant's private state.
 - An activity log of accepted and rejected actions, showing the contract's own assert message.
 
-It keeps every role's keys in one browser tab, which a product must not do.
+That is **demo mode**: it keeps every role's keys in one browser tab, which a product must not do, so the page labels it. Since S3 the page has a second mode, **wallet mode** (`frontend/src/WalletMode.tsx`): one role per tab, the user's Lace wallet, the proof server on the same machine, Preview testnet. A switch at the top of the page picks the mode (`?mode=wallet` opens the second).
 
 ## Direction
 TODO: the feeling in one or two sentences, plus 1-3 reference products. The product splits the demo into separate entry points per role (tenant, landlord, issuer), each on its own device and wallet.
@@ -40,14 +40,18 @@ TODO: extract from `frontend/src/styles.css` when the product UI is designed.
 | Activity log | all | — | "Nothing yet. Press Load demo data…" | Rejected actions shown in red with the assert message |
 | Ledger / private state panels | 4. Landlord sees the id | Waits for the in-page deploy | Empty tables | Full-page message if the contract cannot start in the browser |
 
-### Product (TODO)
+### Wallet mode (S3, built; local run only)
 | Screen | Step in core path | Loading | Empty | Error |
 | --- | --- | --- | --- | --- |
-| Connect wallet | before every step | TODO | No wallet installed | Wrong network, rejected connection |
-| Tenant: import credential | 1 → 3 | TODO | No credential yet | Credential does not match this key |
-| Tenant: apply | 3 | Proof generation in progress, tx pending | — | Proof server unreachable, tx failed, assert rejected |
-| Landlord: listings and applications | 2, 4 | TODO | No listings / no applications | Indexer unavailable |
-| Issuer: attest | 1 | TODO | — | Not the issuer, tx failed |
+| Connect wallet | before every step | Waits for the user in Lace | "No Midnight wallet with connector API 4.x found" (names wallets found but unsupported) | Wrong network, declined connection, locked wallet or site not allowed (unlock Lace and connect again), wallet disconnected: one line naming the step |
+| Choose role + store password | before every step | — | — | Password too weak |
+| Contract | 1 | Reads the indexer | Address field; issuer also sees Deploy | Not a 64-hex address, indexer unavailable |
+| Tenant: import credential | 1 → 3 | — | No credential yet | Credential issued to another key, income or salt does not match the commitment |
+| Tenant: apply | 3 | Four stages: proof on this computer, waiting for approval in Lace, submitted (tx id), confirmed (block) | No listings on this contract | Circuit assert shown before anything is proven (`Income is below 3x the rent`), proof server unreachable, DUST missing, Lace declined |
+| Landlord: listings and applications | 2, 4 | Same four stages | No listings / no applications | Same |
+| Issuer: attest | 1 | Same four stages | — | Not the issuer, same |
+
+Not designed yet: mockups, tokens and a visual direction (the page reuses the demo's styles); separate entry points per role (today one page, one role per tab).
 
 ## Baseline
 - Works at phone width (375px) without horizontal scroll (today: one breakpoint at 960px).

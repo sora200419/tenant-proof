@@ -135,6 +135,21 @@ export async function connectWallet(
       throw describeWalletError(err, label);
     }
   };
+  // A read has no popup, so `Rejected` there is not the user declining: Lace answers it
+  // while it is locked or when it does not allow this site (seen live on 2026-11-23).
+  const readStep = async <T>(label: string, call: () => Promise<T>): Promise<T> => {
+    try {
+      return await withTimeout(call(), label, timeouts.read);
+    } catch (err) {
+      if (isConnectorError(err) && err.code === 'Rejected') {
+        throw new SanitizedError(
+          `Could not ${label}: the wallet refused without asking you. It may be locked or may not allow this site. Unlock Lace, allow this site, then connect again`,
+          { code: err.code },
+        );
+      }
+      throw describeWalletError(err, label);
+    }
+  };
   const connected = await step('connect to the wallet', timeouts.approval, () => initial.connect(networkId));
   // The API type has `hintUsage`, but a wallet may not implement it (the Lace
   // 4.1.0-canary seen on 2026-11-22 does not): it is only a hint for up-front
@@ -142,16 +157,16 @@ export async function connectWallet(
   if (typeof connected.hintUsage === 'function') {
     await step('ask the wallet for permissions', timeouts.approval, () => connected.hintUsage([...USED_METHODS]));
   }
-  const status = await step('read the wallet connection status', timeouts.read, () => connected.getConnectionStatus());
+  const status = await readStep('read the wallet connection status', () => connected.getConnectionStatus());
   if (status.status !== 'connected') throw new Error('The wallet reports it is disconnected; connect again');
   if (status.networkId !== networkId) {
     throw new Error(`The wallet is on network "${status.networkId}", not "${networkId}". Switch Lace to ${networkId}`);
   }
-  const config = await step('read the wallet configuration', timeouts.read, () => connected.getConfiguration());
+  const config = await readStep('read the wallet configuration', () => connected.getConfiguration());
   if (config.networkId !== networkId) {
     throw new Error(`The wallet is configured for "${config.networkId}", not "${networkId}". Switch Lace to ${networkId}`);
   }
-  const addresses = await step('read the wallet keys', timeouts.read, () => connected.getShieldedAddresses());
+  const addresses = await readStep('read the wallet keys', () => connected.getShieldedAddresses());
   let coinPublicKey: string;
   let encryptionPublicKey: string;
   try {

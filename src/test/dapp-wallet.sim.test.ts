@@ -202,6 +202,28 @@ describe('connectWallet', () => {
     expect((err as Error).message).not.toMatch(/https?:|project_id|wallet-supplied/);
   });
 
+  // Seen live on 2026-11-23: a locked Lace answered the read step with `Rejected` without ever
+  // showing a popup, and the page said "you declined". Only approval steps are a decline.
+  it.each([
+    ['getConnectionStatus', 'read the wallet connection status'],
+    ['getConfiguration', 'read the wallet configuration'],
+    ['getShieldedAddresses', 'read the wallet keys'],
+  ] as const)('does not call a refused %s a decline: the wallet may be locked', async (method, step) => {
+    const c = fakeConnected({
+      [method]: async () => {
+        throw connectorError('Rejected');
+      },
+    });
+    const err = await connectWallet(fakeInitial(c), NETWORK, FAST).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    const message = (err as Error).message;
+    expect(message).toContain(`Could not ${step}`);
+    expect(message).toMatch(/locked|does not allow/);
+    expect(message).toMatch(/Unlock Lace/);
+    expect(message).not.toMatch(/you declined/);
+    expect((err as { upstreamCode?: string }).upstreamCode).toBe('Rejected');
+  });
+
   it('times out a connection the user never answers, naming the step', async () => {
     const initial = fakeInitial(fakeConnected());
     initial.connect.mockImplementationOnce(() => new Promise(() => undefined));

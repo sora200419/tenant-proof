@@ -43,7 +43,7 @@ TODO: extract from `frontend/src/styles.css` when the product UI is designed.
 ### Wallet mode (S3, built; local run only)
 | Screen | Step in core path | Loading | Empty | Error |
 | --- | --- | --- | --- | --- |
-| Connect wallet | before every step | Waits for the user in Lace | "No Midnight wallet with connector API 4.x found" (names wallets found but unsupported) | Wrong network, declined connection, wallet disconnected: one line naming the step |
+| Connect wallet | before every step | Waits for the user in Lace | "No Midnight wallet with connector API 4.x found" (names wallets found but unsupported) | Wrong network, declined connection, locked wallet or site not allowed (unlock Lace and connect again), wallet disconnected: one line naming the step |
 | Choose role + store password | before every step | — | — | Password too weak |
 | Contract | 1 | Reads the indexer | Address field; issuer also sees Deploy | Not a 64-hex address, indexer unavailable |
 | Tenant: import credential | 1 → 3 | — | No credential yet | Credential issued to another key, income or salt does not match the commitment |

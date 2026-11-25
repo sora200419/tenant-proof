@@ -52,7 +52,7 @@ const proofHttp = (status: number) =>
     code: status >= 500 || status === 429 ? UNAVAILABLE : REFUSED,
   });
 /** The error a failed circuit assert produces when a call runs the circuit. */
-const circuitAssert = () => new Error('failed assert: Income is below 3x the rent');
+const circuitAssert = () => new Error("failed assert: Income is below the listing's required multiple of the rent");
 
 /** Runs fn after `failures` errors; records calls and sleeps. */
 function flaky<T>(errors: Error[], value: T) {

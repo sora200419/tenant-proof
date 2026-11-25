@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // TenantProof: an issuer attests a tenant's income, and the tenant proves "my
-// attested monthly income is at least 3x the rent of this listing" to a
-// landlord. The landlord learns that fact, not the income or the payslip. The
-// issuer already knows the income and is trusted. The ledger does not show
-// which issuer attestation is the tenant's.
+// attested monthly income is at least k x the rent of this listing" to a
+// landlord, where k is the multiplier that landlord set for the listing. The
+// landlord learns that fact, not the income or the payslip. The issuer already
+// knows the income and is trusted. The ledger does not show which issuer
+// attestation is the tenant's.
 
 pragma language_version 0.28;
 
@@ -25,13 +26,27 @@ export sealed ledger issuerPk: Bytes<32>;
 export ledger attestations: HistoricMerkleTree<10, Bytes<32>>;
 export ledger attestationCount: Counter;
 
-// Listing id -> monthly rent, set by the landlord.
-export ledger listings: Map<Bytes<32>, Uint<32>>;
+// One listing. The multiplier is in tenths (30 = 3.0x), from 10 (1.0x) to
+// 100 (10.0x), fixed when the listing is created. A closed listing stays on
+// the ledger with open = false and never reopens.
+export struct Listing {
+  label: Bytes<32>,
+  rent: Uint<32>,
+  multiplierTenths: Uint<8>,
+  open: Boolean
+}
+
+// Listing id -> listing. The id is listingId(label, landlordSecret), computed
+// in the circuit from the caller's secret key: only that landlord can create
+// or close it, and nobody else can take the id first. The landlord's key is
+// not stored, and two listings of one landlord are unrelated hashes.
+export ledger listings: Map<Bytes<32>, Listing>;
 
 // Application id -> listing id. An entry exists only if the applicant proved
-// income >= 3 x rent. The id is hash(listing, tenantSecret): stable per
-// tenant+listing (blocks double-applying), and ids for different listings are
-// unrelated hashes. The issuer may still narrow down who applied (see README).
+// income >= the listing's multiplier x rent while the listing was open. The id
+// is hash(listing, tenantSecret): stable per tenant+listing (blocks
+// double-applying), and ids for different listings are unrelated hashes. The
+// issuer may still narrow down who applied (see README).
 export ledger applications: Map<Bytes<32>, Bytes<32>>;
 
 // ---------------------------------------------------------------------------
@@ -63,6 +78,12 @@ export pure circuit applicationId(listingId: Bytes<32>, sk: Bytes<32>): Bytes<32
   return persistentHash<Vector<3, Bytes<32>>>([pad(32, "tenantproof:app:"), listingId, sk]);
 }
 
+// A landlord's listing id. Its own domain, so it never equals a tenant's
+// public key or application id made from the same secret.
+export pure circuit listingId(label: Bytes<32>, sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([pad(32, "tenantproof:listing:"), label, sk]);
+}
+
 // ---------------------------------------------------------------------------
 // Circuits
 // ---------------------------------------------------------------------------
@@ -76,20 +97,41 @@ export circuit attest(leaf: Bytes<32>): [] {
   attestationCount.increment(1);
 }
 
-// Landlord: register a listing and its monthly rent.
-export circuit createListing(listingId: Bytes<32>, rent: Uint<32>): [] {
-  const id = disclose(listingId);
+// Landlord: register a listing with its monthly rent and multiplier. The id is
+// derived from the caller's secret key, so it belongs to this landlord.
+export circuit createListing(label: Bytes<32>, rent: Uint<32>, multiplierTenths: Uint<8>): [] {
+  const l = disclose(label);
+  const id = disclose(listingId(l, secretKey()));
   const r = disclose(rent);
+  const m = disclose(multiplierTenths);
   assert(!listings.member(id), "Listing already exists");
   assert(r > 0, "Rent must be positive");
-  listings.insert(id, r);
+  assert(m >= 10 && m <= 100, "Multiplier must be between 1.0x and 10.0x");
+  listings.insert(id, Listing { label: l, rent: r, multiplierTenths: m, open: true });
 }
 
-// Tenant: prove income >= 3 x rent for a listing, without writing the income to the ledger.
-export circuit apply(listingId: Bytes<32>): [] {
-  const id = disclose(listingId);
+// Landlord: close one of its own listings for good. Only the secret key that
+// created it finds it: anyone else's key derives another id ("Unknown listing").
+export circuit closeListing(label: Bytes<32>): [] {
+  const id = disclose(listingId(disclose(label), secretKey()));
   assert(listings.member(id), "Unknown listing");
-  const rent = listings.lookup(id);
+  const current = listings.lookup(id);
+  assert(current.open, "Listing is already closed");
+  listings.insert(id, Listing {
+    label: current.label,
+    rent: current.rent,
+    multiplierTenths: current.multiplierTenths,
+    open: false
+  });
+}
+
+// Tenant: prove income >= multiplier x rent for an open listing, without
+// writing the income to the ledger.
+export circuit apply(targetId: Bytes<32>): [] {
+  const id = disclose(targetId);
+  assert(listings.member(id), "Unknown listing");
+  const listing = listings.lookup(id);
+  assert(listing.open, "Listing is closed");
 
   const sk = secretKey();
   const inc = income();
@@ -99,8 +141,10 @@ export circuit apply(listingId: Bytes<32>): [] {
   assert(attestations.checkRoot(disclose(merkleTreePathRoot<10, Bytes<32>>(path))),
          "No issuer attestation for this income");
 
-  // Only the pass/fail outcome of this comparison becomes public.
-  assert(disclose(inc >= 3 * rent), "Income is below 3x the rent");
+  // income >= (multiplierTenths / 10) x rent, in whole numbers. Only the
+  // pass/fail outcome of this comparison becomes public.
+  assert(disclose(inc * 10 >= listing.multiplierTenths * listing.rent),
+         "Income is below the listing's required multiple of the rent");
 
   const app = disclose(applicationId(id, sk));
   assert(!applications.member(app), "Already applied to this listing");

@@ -1,0 +1,42 @@
+{
+  "version": { "major": 3, "minor": 1 },
+  "do_communications_commitment": true,
+  "inputs": [
+    { "name": "%label.0", "type": "Scalar<BLS12-381>" },
+    { "name": "%label.1", "type": "Scalar<BLS12-381>" }
+  ],
+  "outputs": [
+  ],
+  "instructions": [
+    { "op": "constrain_bits", "val": "%label.0", "bits": 8 },
+    { "op": "constrain_bits", "val": "%label.1", "bits": 248 },
+    { "op": "private_input", "type": "Scalar<BLS12-381>", "output": "%sk.2", "guard": null },
+    { "op": "constrain_bits", "val": "%sk.2", "bits": 8 },
+    { "op": "private_input", "type": "Scalar<BLS12-381>", "output": "%sk.3", "guard": null },
+    { "op": "constrain_bits", "val": "%sk.3", "bits": 248 },
+    { "op": "persistent_hash", "output": "%bytes.4", "alignment": [{ "tag": "atom", "value": { "length": 32, "tag": "bytes" } }, { "tag": "atom", "value": { "length": 32, "tag": "bytes" } }, { "tag": "atom", "value": { "length": 32, "tag": "bytes" } }], "inputs": ["0x00", "0x74656e616e7470726f6f663a6c697374696e673a", "%label.0", "%label.1", "%sk.2", "%sk.3"] },
+    { "op": "bytes_into_natives", "outputs": ["%id.5", "%id.6"], "bytes": "%bytes.4" },
+    { "op": "public_input", "type": "Scalar<BLS12-381>", "output": "%t.7", "guard": null },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x30"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x50", "0x01", "0x01", "0x03"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x10", "0x01", "0x01", "0x20", "%id.6", "%id.5"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x18"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x0d", "0x01", "0x01", "%t.7"] },
+    { "op": "assert", "cond": "%t.7" },
+    { "op": "public_input", "type": "Scalar<BLS12-381>", "output": "%current.8", "guard": null },
+    { "op": "public_input", "type": "Scalar<BLS12-381>", "output": "%current.9", "guard": null },
+    { "op": "public_input", "type": "Scalar<BLS12-381>", "output": "%current.10", "guard": null },
+    { "op": "public_input", "type": "Scalar<BLS12-381>", "output": "%current.11", "guard": null },
+    { "op": "public_input", "type": "Scalar<BLS12-381>", "output": "%current.12", "guard": null },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x30"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x50", "0x01", "0x01", "0x03"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x50", "0x01", "0x20", "%id.6", "%id.5"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x0c", "0x04", "0x20", "0x04", "0x01", "0x01", "%current.8", "%current.9", "%current.10", "%current.11", "%current.12"] },
+    { "op": "assert", "cond": "%current.12" },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x70", "0x01", "0x01", "0x03"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x10", "0x01", "0x01", "0x20", "%id.6", "%id.5"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x11", "0x01", "0x04", "0x20", "0x04", "0x01", "0x01", "%current.8", "%current.9", "%current.10", "%current.11", "0x00"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0x91"] },
+    { "op": "impact", "guard": "0x01", "inputs": ["0xa1"] }
+  ]
+}

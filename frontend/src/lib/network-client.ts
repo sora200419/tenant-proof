@@ -22,6 +22,7 @@ import { applicationIdFor, issueAttestation, listingLabelBytes, randomBytes32, t
 import { assembleProviders, ledgerState, type TenantProofProviders } from '../../../src/provider-set';
 import { LOCAL_PROOF_SERVER, assertLoopbackUrl, walletProviders, type WalletSession } from '../../../src/dapp-wallet';
 import { fromHex, ownedListingIdHexes, snapshotFromLedger, toHex, type LedgerListing, type LedgerSnapshot } from './client';
+import { KeyedLock, getOrCreate, type StateStore } from './keyed-lock';
 
 export type Role = 'issuer' | 'landlord' | 'tenant';
 
@@ -55,6 +56,7 @@ export const privateStateIdFor = (role: Role, tenantName?: string) =>
 export class TenantProofNetwork {
   private onStage: (s: TxStage) => void = () => undefined;
   private readonly providers: TenantProofProviders;
+  private readonly stateLock = new KeyedLock();
 
   private constructor(
     readonly role: Role,
@@ -122,19 +124,34 @@ export class TenantProofNetwork {
     return this.providers.privateStateProvider.forContract(address);
   }
 
-  /** The private state for `id` on this contract, created with a fresh secret key the first time. */
-  async ensurePrivateState(address: string, id: string): Promise<TenantProofPrivateState> {
+  private stateStore(address: string): StateStore<TenantProofPrivateState> {
     const states = this.privateStates(address);
-    const existing = (await states.get(id)) as TenantProofPrivateState | null;
-    if (existing) return existing;
-    const fresh = createTenantProofPrivateState(randomBytes32());
-    await states.set(id, fresh);
-    return fresh;
+    return {
+      get: async (id) => (await states.get(id)) as TenantProofPrivateState | null,
+      set: (id, state) => states.set(id, state),
+    };
   }
 
-  async setTenantCredential(address: string, id: string, income: bigint, salt: Uint8Array): Promise<void> {
-    const current = await this.ensurePrivateState(address, id);
-    await this.privateStates(address).set(id, createTenantProofPrivateState(current.secretKey, income, salt));
+  private getOrCreateUnlocked(address: string, id: string): Promise<TenantProofPrivateState> {
+    return getOrCreate(this.stateStore(address), id, () => createTenantProofPrivateState(randomBytes32()));
+  }
+
+  /**
+   * The private state for `id` on this contract, created with a fresh secret
+   * key the first time. Serialised per (contract, id): without the lock, the
+   * owned-listings refresh and a quick "Create listing" could each find no
+   * state and each store a different landlord key, leaving a listing that no
+   * stored key can close. Two tabs of the same role still race; see SECURITY.md.
+   */
+  ensurePrivateState(address: string, id: string): Promise<TenantProofPrivateState> {
+    return this.stateLock.run(`${address}/${id}`, () => this.getOrCreateUnlocked(address, id));
+  }
+
+  setTenantCredential(address: string, id: string, income: bigint, salt: Uint8Array): Promise<void> {
+    return this.stateLock.run(`${address}/${id}`, async () => {
+      const current = await this.getOrCreateUnlocked(address, id);
+      await this.privateStates(address).set(id, createTenantProofPrivateState(current.secretKey, income, salt));
+    });
   }
 
   async snapshot(address: string): Promise<LedgerSnapshot> {

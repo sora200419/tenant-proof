@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import WalletMode from './WalletMode';
+import { CopyButton } from './CopyButton';
 import {
   TenantProofDemo,
   UINT32_MAX,
@@ -426,9 +427,7 @@ function DemoMode() {
                 <div className="bundle-box">
                   <div className="bundle-header">
                     <strong>Credential to hand to the tenant (off-chain)</strong>
-                    <button className="btn small ghost" onClick={() => navigator.clipboard?.writeText(JSON.stringify(lastBundle, null, 2)).catch(() => {})}>
-                      Copy
-                    </button>
+                    <CopyButton text={JSON.stringify(lastBundle, null, 2)} />
                   </div>
                   <pre className="bundle-pre">{JSON.stringify(lastBundle, null, 2)}</pre>
                 </div>

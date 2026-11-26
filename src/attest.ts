@@ -56,7 +56,7 @@ export const parseMultiplierTenths = (raw: string): bigint => {
   const m = /^(\d{1,3})(?:\.(\d))?$/.exec(t);
   if (!m) throw new Error('Multiplier must be a number like 3 or 2.5 (a dot, at most one decimal)');
   const tenths = BigInt(m[1]!) * 10n + BigInt(m[2] ?? '0');
-  if (tenths > 255n) throw new Error('Multiplier must be at most 10.0');
+  if (tenths > 255n) throw new Error('Multiplier must be between 1.0x and 10.0x');
   return tenths;
 };
 

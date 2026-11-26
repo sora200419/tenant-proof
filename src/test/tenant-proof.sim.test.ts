@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { Sim, assertNotInPublicState, expectRejects } from './sim.js';
-import { Contract, ledger, pureCircuits } from '../../contract/managed/tenant-proof/contract/index.js';
+import { Contract, ledger, pureCircuits, type Ledger } from '../../contract/managed/tenant-proof/contract/index.js';
 import { createTenantProofPrivateState, witnesses, type TenantProofPrivateState } from '../../contract/witnesses.js';
 import {
   applicationIdFor,
@@ -358,12 +358,42 @@ describe('TenantProof (in memory)', () => {
       expect(sim.ledger().applications.size()).toBe(2n);
     });
 
-    it('still accepts an application after the issuer attests someone else (historic root)', async () => {
-      const { as, newTenant, roomA } = await setup();
-      const tenant = await newTenant(9000n);
-      await newTenant(4000n);
-      await newTenant(7000n);
-      await as(tenant).call('apply', roomA);
+    it('still accepts a path built against an older root after the issuer attests someone else (historic root)', async () => {
+      // The default witness reads the path from the current tree, which would
+      // never test an old root. This one returns the path the tenant's client
+      // read before two more tenants were attested, as a client that built its
+      // proof earlier would.
+      let stalePath: ReturnType<Ledger['attestations']['findPathForLeaf']>;
+      const staleWitnesses: typeof witnesses = {
+        ...witnesses,
+        attestationPath: (ctx, leaf) => (stalePath ? [ctx.privateState, stalePath] : witnesses.attestationPath(ctx, leaf)),
+      };
+      const issuer = createTenantProofPrivateState(randomBytes32());
+      const landlord = createTenantProofPrivateState(randomBytes32());
+      const sim = await Sim.deploy({ contract: new Contract(staleWitnesses), ledger, privateState: issuer });
+      sim.privateState = landlord;
+      await sim.call('createListing', listingLabelBytes(ROOM_A), RENT, THREE_X);
+      const roomA = listingIdFor(ROOM_A, landlord.secretKey);
+
+      const sk = randomBytes32();
+      const att = issueAttestation(9000n, tenantPublicKey(sk));
+      sim.privateState = issuer;
+      await sim.call('attest', att.leaf);
+      stalePath = sim.ledger().attestations.findPathForLeaf(att.leaf);
+      expect(stalePath).toBeDefined();
+      const oldRoot = sim.ledger().attestations.root();
+
+      for (const income of [4000n, 7000n]) {
+        await sim.call('attest', issueAttestation(income, tenantPublicKey(randomBytes32())).leaf);
+      }
+      const tree = sim.ledger().attestations;
+      expect(tree.root()).not.toEqual(oldRoot);
+      expect(tree.findPathForLeaf(att.leaf)).not.toEqual(stalePath);
+      expect(tree.checkRoot(oldRoot)).toBe(true);
+
+      sim.privateState = createTenantProofPrivateState(sk, att.income, att.salt);
+      await sim.call('apply', roomA);
+      expect(sim.ledger().applications.member(applicationIdFor(roomA, sk))).toBe(true);
     });
   });
 

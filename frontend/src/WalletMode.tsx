@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LOCAL_PROOF_SERVER, connectWallet, listWallets, type WalletSession } from '../../src/dapp-wallet';
 import { sanitizeError } from '../../src/retry';
+import { CopyButton } from './CopyButton';
 import { TenantProofNetwork, privateStateIdFor, type Role, type TxResult, type TxStage } from './lib/network-client';
 import {
   UINT32_MAX,
@@ -501,9 +502,7 @@ export default function WalletMode() {
                 <div className="bundle-box">
                   <div className="bundle-header">
                     <strong>Credential to hand to the tenant (off-chain, privately). Valid only once the attestation above is confirmed; copy it now, it is not stored.</strong>
-                    <button className="btn small ghost" onClick={() => navigator.clipboard?.writeText(JSON.stringify(bundle, null, 2)).catch(() => {})}>
-                      Copy
-                    </button>
+                    <CopyButton text={JSON.stringify(bundle, null, 2)} />
                   </div>
                   <pre className="bundle-pre">{JSON.stringify(bundle, null, 2)}</pre>
                 </div>

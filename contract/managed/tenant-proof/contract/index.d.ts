@@ -1,5 +1,11 @@
 import type * as __compactRuntime from '@midnight-ntwrk/compact-runtime';
 
+export type Listing = { label: Uint8Array;
+                        rent: bigint;
+                        multiplierTenths: bigint;
+                        open: boolean
+                      };
+
 export type Witnesses<PS> = {
   secretKey(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, Uint8Array];
   income(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, bigint];
@@ -15,23 +21,28 @@ export type Witnesses<PS> = {
 export type ImpureCircuits<PS> = {
   attest(context: __compactRuntime.CircuitContext<PS>, leaf_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
   createListing(context: __compactRuntime.CircuitContext<PS>,
-                listingId_0: Uint8Array,
-                rent_0: bigint): Promise<__compactRuntime.CircuitResults<PS, []>>;
-  apply(context: __compactRuntime.CircuitContext<PS>, listingId_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
+                label_0: Uint8Array,
+                rent_0: bigint,
+                multiplierTenths_0: bigint): Promise<__compactRuntime.CircuitResults<PS, []>>;
+  closeListing(context: __compactRuntime.CircuitContext<PS>, label_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
+  apply(context: __compactRuntime.CircuitContext<PS>, targetId_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
 }
 
 export type ProvableCircuits<PS> = {
   attest(context: __compactRuntime.CircuitContext<PS>, leaf_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
   createListing(context: __compactRuntime.CircuitContext<PS>,
-                listingId_0: Uint8Array,
-                rent_0: bigint): Promise<__compactRuntime.CircuitResults<PS, []>>;
-  apply(context: __compactRuntime.CircuitContext<PS>, listingId_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
+                label_0: Uint8Array,
+                rent_0: bigint,
+                multiplierTenths_0: bigint): Promise<__compactRuntime.CircuitResults<PS, []>>;
+  closeListing(context: __compactRuntime.CircuitContext<PS>, label_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
+  apply(context: __compactRuntime.CircuitContext<PS>, targetId_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
 }
 
 export type PureCircuits = {
   publicKey(sk_0: Uint8Array): Uint8Array;
   attestationLeaf(inc_0: bigint, tenantPk_0: Uint8Array, salt_0: Uint8Array): Uint8Array;
   applicationId(listingId_0: Uint8Array, sk_0: Uint8Array): Uint8Array;
+  listingId(label_0: Uint8Array, sk_0: Uint8Array): Uint8Array;
 }
 
 export type Circuits<PS> = {
@@ -43,11 +54,16 @@ export type Circuits<PS> = {
   applicationId(context: __compactRuntime.CircuitContext<PS>,
                 listingId_0: Uint8Array,
                 sk_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, Uint8Array>>;
+  listingId(context: __compactRuntime.CircuitContext<PS>,
+            label_0: Uint8Array,
+            sk_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, Uint8Array>>;
   attest(context: __compactRuntime.CircuitContext<PS>, leaf_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
   createListing(context: __compactRuntime.CircuitContext<PS>,
-                listingId_0: Uint8Array,
-                rent_0: bigint): Promise<__compactRuntime.CircuitResults<PS, []>>;
-  apply(context: __compactRuntime.CircuitContext<PS>, listingId_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
+                label_0: Uint8Array,
+                rent_0: bigint,
+                multiplierTenths_0: bigint): Promise<__compactRuntime.CircuitResults<PS, []>>;
+  closeListing(context: __compactRuntime.CircuitContext<PS>, label_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
+  apply(context: __compactRuntime.CircuitContext<PS>, targetId_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
 }
 
 export type Ledger = {
@@ -66,8 +82,8 @@ export type Ledger = {
     isEmpty(): boolean;
     size(): bigint;
     member(key_0: Uint8Array): boolean;
-    lookup(key_0: Uint8Array): bigint;
-    [Symbol.iterator](): Iterator<[Uint8Array, bigint]>
+    lookup(key_0: Uint8Array): Listing;
+    [Symbol.iterator](): Iterator<[Uint8Array, Listing]>
   };
   applications: {
     isEmpty(): boolean;

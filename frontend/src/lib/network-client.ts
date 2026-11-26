@@ -18,10 +18,10 @@ import type { ProofProvider, WalletProvider } from '@midnight-ntwrk/midnight-js-
 import { ledger } from '../../../contract/managed/tenant-proof/contract/index.js';
 import { BrowserTenantProofContract } from '../../../contract/browser';
 import { createTenantProofPrivateState, type TenantProofPrivateState } from '../../../contract/witnesses';
-import { applicationIdFor, issueAttestation, listingIdFromLabel, randomBytes32, tenantPublicKey } from '../../../src/attest';
+import { applicationIdFor, issueAttestation, listingLabelBytes, randomBytes32, tenantPublicKey } from '../../../src/attest';
 import { assembleProviders, ledgerState, type TenantProofProviders } from '../../../src/provider-set';
 import { LOCAL_PROOF_SERVER, assertLoopbackUrl, walletProviders, type WalletSession } from '../../../src/dapp-wallet';
-import { snapshotFromLedger, toHex, type LedgerSnapshot } from './client';
+import { fromHex, ownedListingIdHexes, snapshotFromLedger, toHex, type LedgerListing, type LedgerSnapshot } from './client';
 
 export type Role = 'issuer' | 'landlord' | 'tenant';
 
@@ -139,13 +139,24 @@ export class TenantProofNetwork {
 
   async snapshot(address: string): Promise<LedgerSnapshot> {
     const read = await this.providers.publicDataProvider.queryContractState(address);
-    return snapshotFromLedger(ledger(ledgerState(read)));
+    const state = ledgerState(read);
+    let decoded: ReturnType<typeof ledger>;
+    try {
+      decoded = ledger(state);
+    } catch (e) {
+      // A contract deployed before S4 stores listings as id -> rent; this build
+      // expects id -> { label, rent, multiplier, open } and cannot read it.
+      throw new Error('This contract was deployed by an older version of TenantProof (before landlord-owned listings); deploy a new one', {
+        cause: e,
+      });
+    }
+    return snapshotFromLedger(decoded);
   }
 
   private async call(
     address: string,
     privateStateId: string,
-    circuitId: 'attest' | 'createListing' | 'apply',
+    circuitId: 'attest' | 'createListing' | 'closeListing' | 'apply',
     args: unknown[],
     onStage: (s: TxStage) => void,
   ): Promise<TxResult> {
@@ -195,19 +206,38 @@ export class TenantProofNetwork {
     /** Called with the credential BEFORE the transaction is built: if the page dies after the commitment lands, the salt is not lost. */
     onCredential: (c: { leafHex: string; saltHex: string }) => void,
   ) {
-    const att = issueAttestation(income, hexBytes(tenantPkHex));
+    const att = issueAttestation(income, hexBytes(tenantPkHex, 'Tenant public key'));
     onCredential({ leafHex: toHex(att.leaf), saltHex: toHex(att.salt) });
     const tx = await this.call(address, privateStateIdFor('issuer'), 'attest', [att.leaf], onStage);
     return { tx, leafHex: toHex(att.leaf), saltHex: toHex(att.salt) };
   }
 
-  async createListing(address: string, label: string, rent: bigint, onStage: (s: TxStage) => void) {
+  /** Landlord: lists a room. The contract derives the listing id from this landlord's key and the label. */
+  async createListing(address: string, label: string, rent: bigint, multiplierTenths: bigint, onStage: (s: TxStage) => void) {
     await this.ensurePrivateState(address, privateStateIdFor('landlord'));
-    return this.call(address, privateStateIdFor('landlord'), 'createListing', [listingIdFromLabel(label.trim()), rent], onStage);
+    return this.call(
+      address,
+      privateStateIdFor('landlord'),
+      'createListing',
+      [listingLabelBytes(label.trim()), rent, multiplierTenths],
+      onStage,
+    );
   }
 
-  async apply(address: string, tenantId: string, label: string, onStage: (s: TxStage) => void) {
-    const id = listingIdFromLabel(label.trim());
+  /** Landlord: closes one of its listings for good, by the label bytes stored on the ledger. */
+  async closeListing(address: string, labelHex: string, onStage: (s: TxStage) => void) {
+    await this.ensurePrivateState(address, privateStateIdFor('landlord'));
+    return this.call(address, privateStateIdFor('landlord'), 'closeListing', [fromHex(labelHex, 32)], onStage);
+  }
+
+  /** Landlord: which of these listings this landlord's key created (ids recomputed locally, nothing sent). */
+  async ownedListingIds(address: string, listings: readonly LedgerListing[]): Promise<Set<string>> {
+    const { secretKey } = await this.ensurePrivateState(address, privateStateIdFor('landlord'));
+    return ownedListingIdHexes(listings, secretKey);
+  }
+
+  async apply(address: string, tenantId: string, listingIdHex: string, onStage: (s: TxStage) => void) {
+    const id = hexBytes(listingIdHex, 'Listing id');
     const state = await this.ensurePrivateState(address, tenantId);
     const tx = await this.call(address, tenantId, 'apply', [id], onStage);
     return { tx, applicationIdHex: toHex(applicationIdFor(id, state.secretKey)) };
@@ -219,9 +249,9 @@ export class TenantProofNetwork {
   }
 }
 
-function hexBytes(hex: string): Uint8Array {
+function hexBytes(hex: string, what: string): Uint8Array {
   const clean = hex.trim().toLowerCase().replace(/^0x/, '');
-  if (!/^[0-9a-f]{64}$/.test(clean)) throw new Error('Tenant public key must be 32 bytes of hex');
+  if (!/^[0-9a-f]{64}$/.test(clean)) throw new Error(`${what} must be 32 bytes of hex`);
   const out = new Uint8Array(32);
   for (let i = 0; i < 32; i++) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
   return out;

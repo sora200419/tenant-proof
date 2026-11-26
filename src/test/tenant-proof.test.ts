@@ -29,7 +29,7 @@ import pino from 'pino';
 import { getConfig } from '../config.js';
 import { buildProviders, ledgerState, type TenantProofCircuits, type TenantProofProviders } from '../providers.js';
 import { createTenantProofPrivateState, type TenantProofPrivateState } from '../../contract/witnesses.js';
-import { applicationIdFor, issueAttestation, listingIdFromLabel, randomBytes32, tenantPublicKey } from '../attest.js';
+import { applicationIdFor, issueAttestation, listingIdFor, listingLabelBytes, randomBytes32, tenantPublicKey } from '../attest.js';
 import { installConsoleRedaction } from '../retry.js';
 import {
   CompiledTenantProofContract,
@@ -153,8 +153,11 @@ describe(`Tenant Proof Contract (${network})`, () => {
   const LANDLORD_ID = 'LandlordTenantProofState';
   const TENANT_ID = 'TenantTenantProofState';
   const POOR_TENANT_ID = 'PoorTenantProofState';
-  const ROOM = listingIdFromLabel(`room-${Date.now()}`);
+  const LANDLORD_SK = randomBytes32();
+  const ROOM_LABEL = `room-${Date.now()}`;
+  const ROOM = listingIdFor(ROOM_LABEL, LANDLORD_SK);
   const RENT = 1500n;
+  const MULTIPLIER_TENTHS = 30n; // 3.0x
 
   const call = (privateStateId: string, circuitId: TenantProofCircuits, args: unknown[]) =>
     submitCallTx(providers, {
@@ -194,12 +197,15 @@ describe(`Tenant Proof Contract (${network})`, () => {
   });
 
   it('landlord lists a room', async () => {
-    await setPrivateState(LANDLORD_ID, createTenantProofPrivateState(randomBytes32()));
-    await call(LANDLORD_ID, 'createListing', [ROOM, RENT]);
-    expect((await queryLedger()).listings.lookup(ROOM)).toBe(RENT);
+    await setPrivateState(LANDLORD_ID, createTenantProofPrivateState(LANDLORD_SK));
+    await call(LANDLORD_ID, 'createListing', [listingLabelBytes(ROOM_LABEL), RENT, MULTIPLIER_TENTHS]);
+    const listing = (await queryLedger()).listings.lookup(ROOM);
+    expect(listing.rent).toBe(RENT);
+    expect(listing.multiplierTenths).toBe(MULTIPLIER_TENTHS);
+    expect(listing.open).toBe(true);
   });
 
-  it('a tenant earning 3x the rent proves eligibility without revealing income', async () => {
+  it('a tenant earning at least 3.0x the rent proves eligibility without revealing income', async () => {
     const tenant = await attestTenant(5200n);
     await setPrivateState(TENANT_ID, tenant);
     await call(TENANT_ID, 'apply', [ROOM]);
@@ -208,10 +214,10 @@ describe(`Tenant Proof Contract (${network})`, () => {
     expect(l.attestationCount).toBe(1n);
   });
 
-  it('a tenant earning less than 3x the rent is rejected before anything is submitted', async () => {
+  it('a tenant earning less than 3.0x the rent is rejected before anything is submitted', async () => {
     const poor = await attestTenant(4000n);
     await setPrivateState(POOR_TENANT_ID, poor);
-    await expect(call(POOR_TENANT_ID, 'apply', [ROOM])).rejects.toThrow('Income is below 3x the rent');
+    await expect(call(POOR_TENANT_ID, 'apply', [ROOM])).rejects.toThrow("Income is below the listing's required multiple of the rent");
     expect((await queryLedger()).applications.size()).toBe(1n);
   });
 });

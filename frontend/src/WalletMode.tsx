@@ -5,7 +5,17 @@ import { useEffect, useMemo, useState } from 'react';
 import { LOCAL_PROOF_SERVER, connectWallet, listWallets, type WalletSession } from '../../src/dapp-wallet';
 import { sanitizeError } from '../../src/retry';
 import { TenantProofNetwork, privateStateIdFor, type Role, type TxResult, type TxStage } from './lib/network-client';
-import { UINT32_MAX, attestationLeafHex, errorMessage, fromHex, shortHex, type LedgerSnapshot } from './lib/client';
+import {
+  UINT32_MAX,
+  attestationLeafHex,
+  errorMessage,
+  fromHex,
+  listingTerms as terms,
+  shortHex,
+  type LedgerListing,
+  type LedgerSnapshot,
+} from './lib/client';
+import { parseMultiplierTenths, requiredIncome } from '../../src/attest';
 
 const NETWORK = 'preview';
 
@@ -106,12 +116,15 @@ export default function WalletMode() {
   // Landlord
   const [label, setLabel] = useState('bukit-jalil-room-a');
   const [rent, setRent] = useState('1500');
+  const [multiplier, setMultiplier] = useState('3.0');
+  const [owned, setOwned] = useState<Set<string>>(new Set());
   // Tenant
   const [identities, setIdentities] = useState<string[]>(['tenant-1']);
   const [identity, setIdentity] = useState('tenant-1');
   const [myPk, setMyPk] = useState('');
   const [importText, setImportText] = useState('');
-  const [applyLabel, setApplyLabel] = useState('');
+  const [applyId, setApplyId] = useState('');
+  const [givenId, setGivenId] = useState(() => new URLSearchParams(window.location.search).get('listing') ?? '');
 
   const wallets = useMemo(() => listWallets(window.midnight), []);
   const tenantStateId = privateStateIdFor('tenant', identity);
@@ -142,6 +155,20 @@ export default function WalletMode() {
     };
   }, [client, role, address, snapshot, tenantStateId]);
 
+  // The landlord's own listings: ids recomputed from this tab's landlord key.
+  useEffect(() => {
+    setOwned(new Set());
+    if (!client || client.role !== 'landlord' || !address || !snapshot) return;
+    let cancelled = false;
+    client
+      .ownedListingIds(address, snapshot.listings)
+      .then((ids) => !cancelled && setOwned(ids))
+      .catch((e) => !cancelled && setError(errorMessage(e)));
+    return () => {
+      cancelled = true;
+    };
+  }, [client, address, snapshot]);
+
   const guard = async (action: () => Promise<void>) => {
     setBusy(true);
     setError(null);
@@ -171,7 +198,8 @@ export default function WalletMode() {
    * Re-read until the counts differ from `before`, at most 6 more times, 2 s apart.
    */
   const settledSnapshot = async (addr: string, before: LedgerSnapshot | null) => {
-    const sig = (x: LedgerSnapshot) => `${x.attestationCount}/${x.listings.length}/${x.applications.length}`;
+    const sig = (x: LedgerSnapshot) =>
+      `${x.attestationCount}/${x.listings.length}/${x.listings.filter((l) => l.open).length}/${x.applications.length}`;
     let snap = await client!.snapshot(addr);
     for (let i = 0; i < 6 && before !== null && sig(snap) === sig(before); i++) {
       await new Promise((r) => setTimeout(r, 2000));
@@ -250,25 +278,37 @@ export default function WalletMode() {
       () => 'Attestation published. Hand the credential below to the tenant privately; the income is not on the ledger.',
     );
 
-  const createListing = () =>
-    txRun(
+  const createListing = () => {
+    let need = 0n;
+    return txRun(
       (onStage) => {
-        if (!label.trim()) throw new Error('Enter a listing id');
-        return client!.createListing(address, label, parseUint32(rent, 'Monthly rent'), onStage);
+        if (!label.trim()) throw new Error('Enter a listing label');
+        const r = parseUint32(rent, 'Monthly rent');
+        const m = parseMultiplierTenths(multiplier);
+        need = requiredIncome(r, m);
+        return client!.createListing(address, label, r, m, onStage);
       },
-      () => `Listed "${label.trim()}". Applicants must prove income of at least ${BigInt(rent) * 3n}.`,
+      () => `Listed "${label.trim()}". Applicants must prove income of at least ${need}. Give tenants the listing id shown below.`,
+    );
+  };
+
+  const closeListing = (l: LedgerListing) =>
+    txRun(
+      (onStage) => client!.closeListing(address, l.labelHex, onStage),
+      () => `Closed "${l.label}". It accepts no more applications; the ones already made stay on the ledger.`,
     );
 
   const apply = () => {
     let appId = '';
+    const target = listings.find((l) => l.idHex === applyId);
     return txRun(
       async (onStage) => {
-        if (!applyLabel) throw new Error('Choose a listing');
-        const r = await client!.apply(address, tenantStateId, applyLabel, onStage);
+        if (!target) throw new Error('Choose a listing');
+        const r = await client!.apply(address, tenantStateId, target.idHex, onStage);
         appId = r.applicationIdHex;
         return r.tx;
       },
-      () => `Eligible for "${applyLabel}". Application ${shortHex(appId)} recorded; the income was not written to the ledger.`,
+      () => `Eligible for "${target?.label}". Application ${shortHex(appId)} recorded; the income was not written to the ledger.`,
     );
   };
 
@@ -298,9 +338,20 @@ export default function WalletMode() {
   };
 
   const listings = snapshot?.listings ?? [];
+  const openListings = listings.filter((l) => l.open);
+  const myListings = listings.filter((l) => owned.has(l.idHex));
   useEffect(() => {
-    if (listings.length > 0 && !listings.some((l) => l.label === applyLabel)) setApplyLabel(listings[0]!.label);
-  }, [listings, applyLabel]);
+    if (openListings.length > 0 && !openListings.some((l) => l.idHex === applyId)) setApplyId(openListings[0]!.idHex);
+  }, [openListings, applyId]);
+
+  // The full listing id the landlord gave the tenant: selects that listing on an
+  // exact match, so a look-alike with the same label (or a ground short id) is not picked.
+  const givenIdClean = givenId.trim().toLowerCase().replace(/^0x/, '');
+  const givenIdMatch = /^[0-9a-f]{64}$/.test(givenIdClean) ? listings.find((l) => l.idHex === givenIdClean) : undefined;
+  useEffect(() => {
+    if (givenIdMatch?.open && givenIdMatch.idHex !== applyId) setApplyId(givenIdMatch.idHex);
+  }, [givenIdMatch, applyId]);
+  const selectedListing = listings.find((l) => l.idHex === applyId);
 
   return (
     <div className="wallet-mode">
@@ -463,13 +514,21 @@ export default function WalletMode() {
           {client && snapshot && client.role === 'landlord' && (
             <div className="card">
               <h2>List a room</h2>
+              <p className="hint">
+                The listing id is computed from this tab's landlord key and the label, so only this key can close it and nobody can take
+                it first. You choose the multiplier; it cannot be changed later (close the listing and list again under a new label).
+              </p>
               <label className="field">
-                <span>Listing id (up to 32 characters)</span>
+                <span>Label (up to 32 characters, public)</span>
                 <input value={label} onChange={(e) => setLabel(e.target.value)} />
               </label>
               <label className="field">
                 <span>Monthly rent</span>
                 <input inputMode="numeric" value={rent} onChange={(e) => setRent(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Required multiple of the rent (1.0 to 10.0, one decimal, e.g. 3 or 2.5)</span>
+                <input inputMode="decimal" value={multiplier} onChange={(e) => setMultiplier(e.target.value)} />
               </label>
               <div className="btn-row">
                 <button className="btn primary" onClick={createListing} disabled={busy}>
@@ -478,19 +537,29 @@ export default function WalletMode() {
               </div>
               <div className="sublist">
                 <h3>Your listings and eligible applications</h3>
-                {listings.length === 0 ? (
-                  <p className="muted">No listings yet.</p>
+                {myListings.length === 0 ? (
+                  <p className="muted">No listings made with this tab's landlord key yet.</p>
                 ) : (
-                  listings.map((l) => {
+                  myListings.map((l) => {
                     const apps = snapshot.applications.filter((a) => a.listingIdHex === l.idHex);
                     return (
                       <div key={l.idHex} className="subitem">
                         <div>
-                          <strong>{l.label}</strong> · rent {l.rent} · requires income ≥ {(BigInt(l.rent) * 3n).toString()}
+                          <strong>{l.label}</strong> · {terms(l)} · {l.open ? 'open' : 'closed'}
+                        </div>
+                        <div className="muted">
+                          Listing id <code>{l.idHex}</code>
                         </div>
                         <div className="muted">
                           Eligible applicants ({apps.length}): {apps.length === 0 ? 'none yet' : apps.map((a) => shortHex(a.applicationIdHex, 10, 6)).join(', ')}
                         </div>
+                        {l.open && (
+                          <div className="btn-row">
+                            <button className="btn small danger" onClick={() => closeListing(l)} disabled={busy}>
+                              Close this listing (permanent)
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })
@@ -533,10 +602,10 @@ export default function WalletMode() {
               <label className="field">
                 <span>Listing</span>
                 {listings.length > 0 ? (
-                  <select value={applyLabel} onChange={(e) => setApplyLabel(e.target.value)}>
+                  <select value={applyId} onChange={(e) => setApplyId(e.target.value)}>
                     {listings.map((l) => (
-                      <option key={l.idHex} value={l.label}>
-                        {l.label} (rent {l.rent}, needs income ≥ {(BigInt(l.rent) * 3n).toString()})
+                      <option key={l.idHex} value={l.idHex} disabled={!l.open}>
+                        {l.label} · {shortHex(l.idHex, 6, 4)} ({terms(l)}){l.open ? '' : ' · closed'}
                       </option>
                     ))}
                   </select>
@@ -544,11 +613,43 @@ export default function WalletMode() {
                   <p className="muted">No listings on this contract yet.</p>
                 )}
               </label>
+              <label className="field">
+                <span>Listing id your landlord gave you (64 hex characters; selects that listing)</span>
+                <input value={givenId} onChange={(e) => setGivenId(e.target.value)} placeholder="paste the full listing id" />
+              </label>
+              {givenId.trim() !== '' &&
+                (!/^[0-9a-f]{64}$/.test(givenIdClean) ? (
+                  <p className="precheck precheck-warn">A listing id is 64 hex characters.</p>
+                ) : !givenIdMatch ? (
+                  <p className="precheck precheck-warn">No listing with this id on this contract. Do not apply to a listing that only has the same label.</p>
+                ) : !givenIdMatch.open ? (
+                  <p className="precheck precheck-warn">That listing is closed.</p>
+                ) : null)}
+              {selectedListing && (
+                <div className="kv">
+                  <span className="k">Selected listing id (full)</span>
+                  <code className="v">{selectedListing.idHex}</code>
+                </div>
+              )}
+              {selectedListing && givenIdMatch && (
+                <p className={`precheck ${givenIdMatch.idHex === selectedListing.idHex ? 'precheck-ok' : 'precheck-warn'}`}>
+                  {givenIdMatch.idHex === selectedListing.idHex
+                    ? 'The selected listing matches the id your landlord gave you.'
+                    : 'The selected listing is NOT the one your landlord gave you.'}
+                </p>
+              )}
               <p className="hint">
-                The circuit first runs in this page: if the income is below 3× the rent, it stops here and nothing is proven or sent.
+                Labels are not unique: two landlords can use the same one, and the short id in the list is not enough to tell them apart.
+                Paste the full id your landlord gave you above, or compare it with the full id shown. The circuit first runs in this page: if the income is below the listing's required multiple of the rent, it stops here and
+                nothing is proven or sent.
               </p>
               <div className="btn-row">
-                <button className="btn primary" onClick={apply} disabled={busy || listings.length === 0}>
+                <button
+                  className="btn primary"
+                  onClick={apply}
+                  // A given id that is not an exact open listing blocks applying, so the warning cannot be skipped.
+                  disabled={busy || openListings.length === 0 || (givenId.trim() !== '' && !givenIdMatch?.open)}
+                >
                   Prove and apply
                 </button>
               </div>

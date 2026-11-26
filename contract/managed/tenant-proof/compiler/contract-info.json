@@ -80,6 +80,31 @@
       }
     },
     {
+      "name": "listingId",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "label",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        },
+        {
+          "name": "sk",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
       "name": "attest",
       "pure": false,
       "proof": true,
@@ -104,7 +129,7 @@
       "proof": true,
       "arguments": [
         {
-          "name": "listingId",
+          "name": "label",
           "type": {
             "type-name": "Bytes",
             "length": 32
@@ -115,6 +140,32 @@
           "type": {
             "type-name": "Uint",
             "maxval": 4294967295
+          }
+        },
+        {
+          "name": "multiplierTenths",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 255
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "closeListing",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "label",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
           }
         }
       ],
@@ -130,7 +181,7 @@
       "proof": true,
       "arguments": [
         {
-          "name": "listingId",
+          "name": "targetId",
           "type": {
             "type-name": "Bytes",
             "length": 32
@@ -272,8 +323,37 @@
         "length": 32
       },
       "value": {
-        "type-name": "Uint",
-        "maxval": 4294967295
+        "type-name": "Struct",
+        "name": "Listing",
+        "elements": [
+          {
+            "name": "label",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "rent",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 4294967295
+            }
+          },
+          {
+            "name": "multiplierTenths",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 255
+            }
+          },
+          {
+            "name": "open",
+            "type": {
+              "type-name": "Boolean"
+            }
+          }
+        ]
       }
     },
     {

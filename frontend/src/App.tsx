@@ -12,9 +12,12 @@ import {
   newSecretKeyHex,
   publicKeyHex,
   shortHex,
+  listingTerms as terms,
+  type LedgerListing,
   type LedgerSnapshot,
   type Secret,
 } from './lib/client';
+import { formatMultiplier, parseMultiplierTenths, requiredIncome } from '../../src/attest';
 
 type RoleTab = 'issuer' | 'landlord' | 'tenant';
 
@@ -107,8 +110,9 @@ function DemoMode() {
   // Landlord form
   const [listingLabel, setListingLabel] = useState(ROOM_A);
   const [listingRent, setListingRent] = useState('1500');
+  const [listingMultiplier, setListingMultiplier] = useState('3.0');
   // Tenant form
-  const [applyLabel, setApplyLabel] = useState(ROOM_A);
+  const [applyId, setApplyId] = useState('');
   const [claimedIncome, setClaimedIncome] = useState('');
   const [importText, setImportText] = useState('');
 
@@ -147,10 +151,10 @@ function DemoMode() {
 
   // Keep the selected listing valid as listings appear.
   useEffect(() => {
-    if (snapshot && snapshot.listings.length > 0 && !snapshot.listings.some((l) => l.label === applyLabel)) {
-      setApplyLabel(snapshot.listings[0]!.label);
+    if (snapshot && snapshot.listings.length > 0 && !snapshot.listings.some((l) => l.idHex === applyId)) {
+      setApplyId(snapshot.listings[0]!.idHex);
     }
-  }, [snapshot, applyLabel]);
+  }, [snapshot, applyId]);
 
   /** Runs one action against the contract, with busy state and logging. */
   const run = async (actor: string, action: (demo: TenantProofDemo) => Promise<string>) => {
@@ -201,11 +205,11 @@ function DemoMode() {
       const b = await demo.attest({ callerSecretKeyHex: issuerSk, tenantPublicKeyHex: bob.publicKeyHex, income: 3500n });
       setCredential(alice.id, { income: '6000', saltHex: a.saltHex, leafHex: a.leafHex });
       setCredential(bob.id, { income: '3500', saltHex: b.saltHex, leafHex: b.leafHex });
-      await demo.createListing({ landlordSecretKeyHex: landlordSk, label: ROOM_A, rent: 1500n });
-      await demo.createListing({ landlordSecretKeyHex: landlordSk, label: STUDIO, rent: 1000n });
-      setApplyLabel(ROOM_A);
+      const room = await demo.createListing({ landlordSecretKeyHex: landlordSk, label: ROOM_A, rent: 1500n, multiplierTenths: 30n });
+      await demo.createListing({ landlordSecretKeyHex: landlordSk, label: STUDIO, rent: 1000n, multiplierTenths: 25n });
+      setApplyId(room.listingIdHex);
       setTab('tenant');
-      return 'Issuer attested Alice (6000) and Bob (3500); landlord listed two rooms (rent 1500 and 1000).';
+      return 'Issuer attested Alice (6000) and Bob (3500); landlord listed two rooms (rent 1500 at 3.0×, rent 1000 at 2.5×).';
     });
 
   const attest = (impostor: boolean) =>
@@ -229,16 +233,24 @@ function DemoMode() {
 
   const createListing = () =>
     run('Landlord', async (demo) => {
-      if (!listingLabel.trim()) throw new Error('Enter a listing id');
+      if (!listingLabel.trim()) throw new Error('Enter a listing label');
       const rent = parseUint32(listingRent, 'Monthly rent');
-      await demo.createListing({ landlordSecretKeyHex: landlordSk, label: listingLabel, rent });
-      setApplyLabel(listingLabel.trim());
-      return `Listed "${listingLabel.trim()}" at rent ${rent}. Applicants must prove income of at least ${rent * 3n}.`;
+      const m = parseMultiplierTenths(listingMultiplier);
+      const res = await demo.createListing({ landlordSecretKeyHex: landlordSk, label: listingLabel, rent, multiplierTenths: m });
+      setApplyId(res.listingIdHex);
+      return `Listed "${listingLabel.trim()}" at rent ${rent} and ${formatMultiplier(m)}. Applicants must prove income of at least ${requiredIncome(rent, m)}.`;
+    });
+
+  const closeListing = (l: LedgerListing, impostor: boolean) =>
+    run(impostor ? 'Someone else' : 'Landlord', async (demo) => {
+      await demo.closeListing({ callerSecretKeyHex: impostor ? newSecretKeyHex() : landlordSk, labelHex: l.labelHex });
+      return `Closed "${l.label}". It accepts no more applications; the ones already made stay on the ledger.`;
     });
 
   const apply = () =>
     run(tenant.name, async (demo) => {
-      if (!applyLabel.trim()) throw new Error('Choose a listing first');
+      const target = snapshot?.listings.find((l) => l.idHex === applyId);
+      if (!target) throw new Error('Create a listing on the Landlord tab first');
       // With no credential the circuit still runs (random salt), so the
       // rejection shown is the contract's own, not a UI shortcut.
       const income = parseUint32(claimedIncome || (tenant.credential ? '' : '9000'), 'Income');
@@ -246,9 +258,9 @@ function DemoMode() {
         tenantSecretKeyHex: tenant.secretKeyHex,
         income,
         saltHex: tenant.credential?.saltHex ?? newSecretKeyHex(),
-        listingLabel: applyLabel,
+        listingIdHex: target.idHex,
       });
-      return `Eligible for "${applyLabel}". Application ${shortHex(res.applicationIdHex)} recorded; the income was not written to the ledger, and the listing shows it is at least 3× the rent.`;
+      return `Eligible for "${target.label}". Application ${shortHex(res.applicationIdHex)} recorded; the income was not written to the ledger, and the listing shows it is at least ${formatMultiplier(BigInt(target.multiplierTenths))} the rent.`;
     });
 
   const addStranger = () => {
@@ -305,15 +317,16 @@ function DemoMode() {
   const myApplications = useMemo(() => {
     if (!snapshot) return [];
     return snapshot.listings
-      .map((l) => ({ label: l.label, id: applicationIdHex(l.label, tenant.secretKeyHex) }))
+      .map((l) => ({ label: l.label, id: applicationIdHex(l.idHex, tenant.secretKeyHex) }))
       .filter((a) => snapshot.applications.some((x) => x.applicationIdHex === a.id));
   }, [snapshot, tenant.secretKeyHex]);
 
-  const selectedListing = snapshot?.listings.find((l) => l.label === applyLabel);
+  const selectedListing = snapshot?.listings.find((l) => l.idHex === applyId);
   const precheck = (() => {
     if (!tenant.credential) return { cls: 'precheck-warn', text: 'No issuer credential on this device. The contract will reject the application.' };
     if (!selectedListing) return { cls: 'precheck-info', text: 'Choose a listing to see the requirement.' };
-    const need = BigInt(selectedListing.rent) * 3n;
+    if (!selectedListing.open) return { cls: 'precheck-warn', text: 'This listing is closed. The contract will reject the application.' };
+    const need = requiredIncome(BigInt(selectedListing.rent), BigInt(selectedListing.multiplierTenths));
     const have = BigInt(tenant.credential.income);
     return have >= need
       ? { cls: 'precheck-ok', text: `Local check: attested income ${have} meets the requirement of ${need}.` }
@@ -351,7 +364,7 @@ function DemoMode() {
         <div>
           <h1>TenantProof</h1>
           <p className="subtitle">
-            Show a landlord a source-verified income signal from a trusted issuer, “my income is at least 3× the rent”, without sending payslips. Built on Midnight’s Compact.
+            Show a landlord a source-verified income signal from a trusted issuer, “my income is at least k× the rent” (k set by the landlord), without sending payslips. Built on Midnight’s Compact.
           </p>
         </div>
         <div className="topbar-actions">
@@ -427,15 +440,19 @@ function DemoMode() {
             <div className="card">
               <h2>List a room</h2>
               <p className="hint">
-                The landlord sets a public rent. Afterwards the landlord sees only application ids, with no name or key attached, that passed <code>income ≥ 3 × rent</code>.
+                The landlord sets a public rent and the multiple k of the rent applicants must earn. Afterwards the landlord sees only application ids, with no name or key attached, that passed <code>income ≥ k × rent</code>. The listing id is computed from the landlord’s key and the label, so only that key can close it and nobody can take it first.
               </p>
               <label className="field">
-                <span>Listing id (up to 32 characters)</span>
+                <span>Label (up to 32 characters, public)</span>
                 <input value={listingLabel} onChange={(e) => setListingLabel(e.target.value)} />
               </label>
               <label className="field">
                 <span>Monthly rent</span>
                 <input inputMode="numeric" value={listingRent} onChange={(e) => setListingRent(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Required multiple k (1.0 to 10.0, one decimal; fixed once listed)</span>
+                <input inputMode="decimal" value={listingMultiplier} onChange={(e) => setListingMultiplier(e.target.value)} />
               </label>
               <div className="btn-row">
                 <button className="btn primary" onClick={createListing} disabled={busy}>
@@ -453,11 +470,21 @@ function DemoMode() {
                     return (
                       <div key={l.idHex} className="subitem">
                         <div>
-                          <strong>{l.label}</strong> · rent {l.rent} · requires income ≥ {(BigInt(l.rent) * 3n).toString()}
+                          <strong>{l.label}</strong> · {terms(l)} · {l.open ? 'open' : 'closed'}
                         </div>
                         <div className="muted">
                           Eligible applicants ({apps.length}): {apps.length === 0 ? 'none yet' : apps.map((a) => shortHex(a.applicationIdHex, 10, 6)).join(', ')}
                         </div>
+                        {l.open && (
+                          <div className="btn-row">
+                            <button className="btn small secondary" onClick={() => closeListing(l, false)} disabled={busy}>
+                              Close (permanent)
+                            </button>
+                            <button className="btn small danger" onClick={() => closeListing(l, true)} disabled={busy}>
+                              Try closing as someone else
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })
@@ -470,7 +497,7 @@ function DemoMode() {
             <div className="card">
               <h2>Prove eligibility and apply</h2>
               <p className="hint">
-                The tenant’s key, income and salt are private inputs. The circuit checks that the issuer attested this income and that it is at least 3× the rent.
+                The tenant’s key, income and salt are private inputs. The circuit checks that the issuer attested this income, that the listing is open, and that the income is at least the listing’s multiple of the rent.
               </p>
               <label className="field">
                 <span>Acting as</span>
@@ -490,15 +517,15 @@ function DemoMode() {
               <label className="field">
                 <span>Listing</span>
                 {snapshot && snapshot.listings.length > 0 ? (
-                  <select value={applyLabel} onChange={(e) => setApplyLabel(e.target.value)}>
+                  <select value={applyId} onChange={(e) => setApplyId(e.target.value)}>
                     {snapshot.listings.map((l) => (
-                      <option key={l.idHex} value={l.label}>
-                        {l.label} (rent {l.rent}, needs income ≥ {(BigInt(l.rent) * 3n).toString()})
+                      <option key={l.idHex} value={l.idHex}>
+                        {l.label} ({terms(l)}){l.open ? '' : ' · closed'}
                       </option>
                     ))}
                   </select>
                 ) : (
-                  <input value={applyLabel} onChange={(e) => setApplyLabel(e.target.value)} placeholder="Create a listing on the Landlord tab first" />
+                  <p className="muted">Create a listing on the Landlord tab first.</p>
                 )}
               </label>
               <label className="field">
@@ -584,14 +611,14 @@ function DemoMode() {
                   <code className="v">{snapshot.attestationCount} commitments, root {shortHex(snapshot.attestationRoot, 8, 6)}</code>
                 </div>
                 <div className="kv-block">
-                  <span className="k">listings (id → rent)</span>
+                  <span className="k">listings (id → label, rent, multiple, open)</span>
                   {snapshot.listings.length === 0 ? (
                     <p className="muted">empty</p>
                   ) : (
                     <ul>
                       {snapshot.listings.map((l) => (
                         <li key={l.idHex}>
-                          <code>{l.label}</code> → <strong>{l.rent}</strong>
+                          <code>{shortHex(l.idHex, 8, 6)}</code> → <code>{l.label}</code>, <strong>{l.rent}</strong>, {formatMultiplier(BigInt(l.multiplierTenths))}, {l.open ? 'open' : 'closed'}
                         </li>
                       ))}
                     </ul>

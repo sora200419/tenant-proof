@@ -8,7 +8,7 @@ A landlord renting out a room usually relies on payslips that the tenant supplie
 
 | | |
 |---|---|
-| Contract | Compiles with the Compact compiler 0.36.0 (language 0.28), including proving keys for all four circuits (`attest`, `createListing`, `closeListing`, `apply`). Landlord-owned listings with a per-listing multiplier (S4) are tested in memory only; every Preview run below used the earlier three-circuit contract with a fixed 3× |
+| Contract | Compiles with the Compact compiler 0.36.0 (language 0.28), including proving keys for all five circuits (`attest`, `revoke`, `createListing`, `closeListing`, `apply`). Attestation expiry and revocation (S5) are tested in memory only; every Preview run below used an earlier contract without them |
 | Tests | In-memory tests pass (`npm run test:sim`): the contract, the retry layer, and wallet mode with a fake wallet |
 | Browser, demo mode | Runs the compiled contract in the page on the official Compact runtime; every role's keys are in one tab. Live: https://sora200419.github.io/tenant-proof/ |
 | Browser, wallet mode | **Verified on Preview (2026-11-22), local run only, before S4** (the current version, with landlord-owned listings, has not run on Preview yet). One role per tab; the Lace wallet balances, signs and submits; proofs come from the proof server on this computer. Test contract `db12a2fccb22763f5598b3c613030a7a7ef26469771845082db9f6d00fc4a58c`: deploy (block 224401), `createListing` (224420), `attest` (224457), `apply` (224474), and a second tenant with income below 3× the rent refused by the circuit before anything was proven or sent. All read back from the Preview indexer. See [Wallet mode](#wallet-mode) |
@@ -20,11 +20,13 @@ Demo mode executes the real circuit logic and every `assert`, but it does not ge
 
 Three roles, one contract ([contract/tenant-proof.compact](contract/tenant-proof.compact)):
 
-1. **Issuer** (an employer, university or bank; the deployer in this version) calls `attest(leaf)`. The leaf is a salted commitment to `(income, tenant public key)`. The issuer gives the income and the salt to the tenant privately.
+1. **Issuer** (an employer, university or bank; the deployer in this version) calls `attest(leaf)`. The leaf is a salted commitment to `(income, tenant public key, expiry)`, where the issuer picks the expiry. The issuer gives the income, the expiry and the salt to the tenant privately. It can later call `revoke(index)` for an attestation (0 = the first it published): that attestation stops working at once, and applications already made with it stay.
 2. **Landlord** calls `createListing(label, rent, multiplier)`. Label, rent and multiplier are public. The multiplier is set per listing, from 1.0× to 10.0× in steps of 0.1, and cannot be changed afterwards. The circuit computes the listing id as `hash(label, landlord secret key)`, so the listing belongs to that key: nobody else can create it first or close it. The landlord's key is not stored. The landlord can later call `closeListing(label)`; a closed listing accepts no more applications, keeps the ones it has, and never reopens.
-3. **Tenant** calls `apply(listingId)`. The tenant's secret key, income and salt are private witness inputs. The circuit:
+3. **Tenant** calls `apply(listingId, checkTime)`. The tenant's secret key, income, expiry and salt are private witness inputs; `checkTime` is public and set by the page to the next whole hour plus one hour. The circuit:
    - checks that the listing exists and is open;
-   - recomputes the commitment and checks, with a Merkle path, that the issuer attested it;
+   - checks that the block time is at most `checkTime`;
+   - recomputes the commitment and checks, with a Merkle path, that the issuer attested it and has not revoked it;
+   - checks that the expiry is at least `checkTime`, so the attestation has not expired (only the pass/fail is public, not the expiry);
    - checks `income × 10 >= multiplier in tenths × rent` (for 3.0×: `income >= 3 × rent`);
    - records an application id, `hash(listing, tenant secret key)`.
 
@@ -34,14 +36,16 @@ Three roles, one contract ([contract/tenant-proof.compact](contract/tenant-proof
 |---|---|
 | The issuer's public key | The tenant's secret key (and public key, which only the issuer sees) |
 | A Merkle tree of salted income commitments | The income |
+| The numbers of revoked attestations (their order of attestation) | The expiry of an attestation |
 | Each listing id with its label, rent, multiplier and whether it is open | The salt; the landlord's secret key (listing ids are hashes of it) |
 | Application id → listing id, for applicants who passed | Which commitment in the tree belongs to the tenant |
+| In each application's transaction: its check time (a whole hour, one to two hours after it was made) | |
 
 What the landlord learns from an application is that the applicant's attested income is at least the listing's multiple of the rent. Because the rent and the multiplier are public, that is a lower bound on the income, not the income.
 
 Two listings of one landlord have unrelated ids, and the contract's public state does not say who owns a listing. The transactions that created them may still be linked through the wallet that paid the fees (not analysed). Labels are not unique: anyone can list a room under the same label with their own key, which gives a different id, so a tenant should apply to the full listing id the landlord gave them, not to a label. Wallet mode has a field for that id (or `&listing=<id>` in the URL), selects the listing only on an exact match, and shows the full id of the selected listing; the short id in the drop-down list is not enough to tell look-alikes apart.
 
-Application ids are per listing. The same tenant applying to two listings produces two ids that are unrelated hashes: the contract's public state does not show that they belong to the same person, or which attestation was used. Each application does make public the attestation-tree root its proof was checked against. A root fixes how many attestations the tree held at that point, so it tells everyone the applicant's attestation is one of the first N; the issuer, which knows the order it attested tenants in, can use this to narrow down the applicant further. That is not the same as anonymity against everyone: the transactions that carried them are separate public data, and whether they can be linked through the wallet that paid their fees has not been analysed (see [Limits](#limits-of-this-version)). A second application to the same listing is rejected.
+Application ids are per listing. The same tenant applying to two listings produces two ids that are unrelated hashes: the contract's public state does not show that they belong to the same person, or which attestation was used. Each application does make public the attestation-tree root its proof was checked against. A root fixes how many attestations the tree held at that point (and, after a revocation, which ones had been revoked), so it tells everyone the applicant's attestation is one of the first N that were not revoked then; the issuer, which knows the order it attested tenants in, can use this to narrow down the applicant further. The check time adds only the hour the application was made, which its transaction already shows; the expiry itself is never public. Each application still proves that the applicant's expiry was not before its check time, so the issuer, which set every expiry, can rule out tenants whose attestation had expired by then; with short or staggered expiries it can narrow down or identify the applicant (see the Issuer row in [docs/SECURITY.md](docs/SECURITY.md)). A revocation makes public which attestation number was revoked, not whose it is (the issuer knows; others only see the number). That is not the same as anonymity against everyone: the transactions that carried them are separate public data, and whether they can be linked through the wallet that paid their fees has not been analysed (see [Limits](#limits-of-this-version)). A second application to the same listing is rejected.
 
 ## Run it
 
@@ -67,8 +71,10 @@ Open http://localhost:5173 and press **Load demo data**. The issuer in the demo 
 - Press **+ New tenant** and apply: rejected, there is no attestation for that key.
 - On the Issuer tab, **Try as someone who is not the issuer**: rejected, `Only the issuer can attest`.
 - On the Landlord tab, **Try closing as someone else**: rejected, `Unknown listing` (another key derives another id). **Close** the room, then apply to it from the Tenant tab: rejected, `Listing is closed`.
+- On the Issuer tab, **Revoke** Bob's attestation, then apply as Bob to the studio: rejected, `No issuer attestation for this income`. **Try revoking as someone else**: rejected, `Only the issuer can revoke`.
+- Press **+30 days** at the top three times (the demo data is valid 90 days), then apply as Alice to a room she has not applied to yet: rejected, `Attestation has expired`. Her earlier applications stay.
 
-The panel on the right shows the public ledger next to the private state. The banner above it searches every byte string in the decoded ledger for every key, salt and income the demo holds. Keys and salts are searched for as bytes, and each income as the 32-byte value the circuit hashes; numeric fields such as rents are not searched. It is a check of the ledger contents, not a proof about the protocol.
+The panel on the right shows the public ledger next to the private state. The banner above it searches every byte string in the decoded ledger for every key, salt, income and expiry the demo holds. Keys and salts are searched for as bytes, and each income and expiry as the 32-byte value the circuit hashes; numeric fields such as rents are not searched. It is a check of the ledger contents, not a proof about the protocol.
 
 The compiled contract (`contract/managed/tenant-proof/contract`) is committed, so the tests and the demo run without the Compact compiler. The compiler is only needed to change the contract (`npm run compile`), and it runs on Linux, macOS or WSL.
 
@@ -89,7 +95,7 @@ You need Docker, `contract/managed/tenant-proof/keys` (from `npm run compile`), 
 4. **Issuer tab:** deploy a contract and copy its address. **Landlord and Tenant tabs:** open the same page with `&contract=<address>` and press Load.
 5. **Landlord:** create a listing (label, rent, multiplier) and give tenants its listing id; close it when the room is taken. **Tenant:** copy your public key and give it to the issuer; the issuer attests an income and hands back the credential JSON; the tenant imports it and presses **Prove and apply**.
 
-Each transaction shows four stages: building the proof on this computer (can take a few minutes), waiting for your approval in Lace, submitted (transaction id), confirmed (block). A tenant whose income is below the listing's multiple of the rent, or who applies to a closed listing, is refused by the circuit in the page, before anything is proven or sent. A contract deployed before S4 stores listings differently and cannot be read by this version: deploy a new one.
+Each transaction shows four stages: building the proof on this computer (can take a few minutes), waiting for your approval in Lace, submitted (transaction id), confirmed (block). A tenant whose income is below the listing's multiple of the rent, whose credential has expired or was revoked, or who applies to a closed listing, is refused by the circuit in the page, before anything is proven or sent. A contract deployed before S5 has a different ledger layout and cannot be read by this version: deploy a new one. The issuer tab can revoke an attestation by pasting its commitment (the `leaf` in the credential).
 
 The proof server receives the tenant's private inputs, so the page only ever uses `127.0.0.1:6300` (through the dev server's `/proof-server` proxy), has no field for another address, and ignores the wallet's own prover setting. Because the proxy forwards to the machine running the dev server, the page refuses to prove when it is opened from any origin other than localhost, 127.0.0.1 or [::1] (for example a dev server started with `--host`). Roles in one browser profile keep separate encrypted stores but share one origin; use a separate browser profile or device per role for real separation.
 
@@ -108,11 +114,13 @@ The proof server receives the tenant's private inputs, so the page only ever use
 - unknown listing and double application are rejected
 - one tenant, two listings: two different application ids
 - an application is still accepted after the issuer attests other tenants (historic Merkle root)
-- no secret key (tenant, issuer or landlord), tenant public key, salt or income appears in the public ledger
+- an attestation is accepted at its expiry boundary (block time = check time = expiry) and rejected one second past either bound, after the clock moves past it, and when a tampered client claims a later expiry than attested
+- `revoke`: only the issuer, only an attested index, only once; a revoked attestation cannot apply, applications made before stay, a proof built against a root from before the revocation is rejected for every tenant, and other and later tenants still apply
+- no secret key (tenant, issuer or landlord), tenant public key, salt, income or expiry appears in the public ledger
 
-Each S4 guard (the key-derived listing id, the multiplier range, the already-closed check, the closed check in `apply`, and the per-listing multiplier) was removed in turn from a throwaway copy of the contract, recompiled, and its tests shown to fail.
+Each S4 guard (the key-derived listing id, the multiplier range, the already-closed check, the closed check in `apply`, and the per-listing multiplier) was removed in turn from a throwaway copy of the contract, recompiled, and its tests shown to fail. The same was done on 2026-11-26 for each S5 guard (the `expiresAt >= checkTime` check, the block-time check, the expiry inside the leaf, the issuer check in `revoke`, the index bound, the already-revoked check, clearing the leaf, and resetting the root history): every one of the 8 mutants made at least one named test fail.
 
-[src/test/tenant-proof.test.ts](src/test/tenant-proof.test.ts) is the same flow against a real network (deploy, attest, list, apply, and a rejected low-income applicant). It has been updated for S4 but not yet run on a network; the Preview results below are from the earlier contract.
+[src/test/tenant-proof.test.ts](src/test/tenant-proof.test.ts) is the same flow against a real network (deploy, attest, list, apply, and a rejected low-income applicant). It has been updated for S5 (attestations carry an expiry 90 days out; `apply` sends a check time) but not yet run on a network; the Preview results below are from the earlier contract.
 
 **Preview result (2026-11-20):** all four tests passed. The Preview indexer shows the test contract `a92bebe0a8e3c54e142a583da8caaa77dab1ec401a40c1d545efba98a6c4ece6` with these actions:
 
@@ -171,24 +179,27 @@ If antivirus software on your machine inspects HTTPS (it re-signs certificates w
 ## Limits of this version
 
 - **One issuer, and it is trusted.** The contract checks that the issuer attested an income. It cannot check that the issuer told the truth.
-- **Attestations never expire and cannot be revoked.** An old payslip stays valid.
+- **Expiry and revocation stop new applications only.** An application records that the check passed when it was made; it stays after the attestation expires or is revoked, and a landlord who wants fresh data must ask for a new application. Expiry is checked against block time with a public check time rounded to the hour, so the last one to two hours of an attestation's validity cannot be used. Only the issuer can revoke, by attestation number; a tenant who wants a credential withdrawn must ask the issuer.
+- **The check time comes from the user's clock.** If the computer's clock runs more than about an hour behind the chain, the proof passes in the page but the transaction is refused on chain; if it runs ahead, the public check time shows that skew.
+- **A commitment attested twice is revoked once.** Revocation is by index; if the issuer ever attests the same commitment twice, revoking one copy leaves the other valid (the issuer tab then still finds it in the tree).
+- **A revocation invalidates every proof in flight.** Revoking resets the history of accepted tree roots, so any tenant whose proof was built before the revocation, revoked or not, is rejected and must build it again. Revoked slots are not reused.
 - **Anonymity is only as large as the set of attested tenants who qualify.** The issuer knows every tenant's income. An application shows the listing, so it shows that the applicant earns at least that listing's multiple of its rent. If few attested tenants clear that bar, the issuer can narrow down or identify the applicant, and can link that person's applications the same way. In the demo data only Alice qualifies for the 1500 room, so the issuer would know it is her.
 - **An application id is not tied to a person.** The landlord sees that someone eligible applied, but the contract gives the tenant no way yet to show "this id is mine" without revealing the secret key, which would link all their applications.
-- **Credentials can be shared.** Nothing binds an attestation to a wallet or an identity: a tenant who gives their key, income and salt to someone else lets that person apply as them.
+- **Credentials can be shared.** Nothing binds an attestation to a wallet or an identity: a tenant who gives their key, income, expiry and salt to someone else lets that person apply as them until it expires or is revoked.
 - **Listing labels are not unique.** A listing id is bound to its landlord's key, so nobody can take it or close it, but anyone can list a room under the same label. A tenant must apply to the id the landlord gave them; the contract cannot tell a genuine listing from a look-alike.
 - **A lost landlord key means the listing can never be closed.** The landlord key lives only in that role's encrypted store in one browser (wallet mode) or in the page (demo mode); there is no export or backup. If the store, the browser profile or its password is lost, the listing keeps accepting applications and nobody can close it.
 - **A listing's multiplier is fixed once listed, and a closed listing never reopens.** To change terms, the landlord closes it and lists again under a new label.
 - **Demo mode keeps every role's keys in one browser tab** so the flow fits on one screen. Wallet mode holds one role per tab, but all roles of one browser profile share an origin, so one page's code could read another role's store. Separate profiles or devices are not enforced.
-- **The issuer's credential is not stored.** After an attestation the issuer tab shows the credential (income and salt) once, before the transaction goes out; it lives in the page only. If the tab is closed before the credential is copied, that commitment can never be opened by the tenant and the issuer has to attest again with a new salt.
+- **The issuer's credential is not stored.** After an attestation the issuer tab shows the credential (income, expiry and salt) once, before the transaction goes out; it lives in the page only. If the tab is closed before the credential is copied, that commitment can never be opened by the tenant and the issuer has to attest again with a new salt.
 - **Fees come from a wallet.** Whether the wallet that pays for a tenant's applications lets an observer link them has not been analysed.
-- **The proof server sees the private inputs.** To build a proof it receives the tenant's key, income and salt. That is only safe when the user runs it on their own machine (`127.0.0.1:6300`); a remote proof server would see the income and the salt. The in-page demo uses no proof server.
+- **The proof server sees the private inputs.** To build a proof it receives the tenant's key, income, expiry and salt. That is only safe when the user runs it on their own machine (`127.0.0.1:6300`); a remote proof server would see the key, income, expiry and salt. The in-page demo uses no proof server.
 - **The page handles keys.** The page runs the circuits and holds that role's keys in memory (wallet mode also keeps them in an encrypted browser store), so a tampered build of the page could send them elsewhere. There is no defence for this yet.
 - **The attestation tree holds 1024 leaves.**
 
 ## Roadmap
 
 - Deploy to Preview with `npm run deploy` (issuer key kept); wallet mode already runs the flow through Lace and a local proof server
-- Expiry and revocation for attestations
+- Run expiry and revocation (S5) on Preview through Lace
 - Several issuers, and alternative criteria such as savings ≥ 12× rent
 - A way for a tenant to prove in person "this application id is mine" for one listing only
 

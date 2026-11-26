@@ -29,7 +29,7 @@ import pino from 'pino';
 import { getConfig } from '../config.js';
 import { buildProviders, ledgerState, type TenantProofCircuits, type TenantProofProviders } from '../providers.js';
 import { createTenantProofPrivateState, type TenantProofPrivateState } from '../../contract/witnesses.js';
-import { applicationIdFor, issueAttestation, listingIdFor, listingLabelBytes, randomBytes32, tenantPublicKey } from '../attest.js';
+import { applicationIdFor, checkTimeFor, expiresAtFromDays, issueAttestation, listingIdFor, listingLabelBytes, randomBytes32, tenantPublicKey } from '../attest.js';
 import { installConsoleRedaction } from '../retry.js';
 import {
   CompiledTenantProofContract,
@@ -171,12 +171,16 @@ describe(`Tenant Proof Contract (${network})`, () => {
   const setPrivateState = (id: string, state: TenantProofPrivateState) =>
     providers.privateStateProvider.forContract(contractAddress).set(id, state);
 
-  /** Issuer attests a new tenant off-chain + on-chain; returns the tenant's private state. */
+  // A real network's block time is the real time, so expiry and check time
+  // follow the wall clock here (the in-memory tests pin the clock instead).
+  const nowSeconds = () => BigInt(Math.floor(Date.now() / 1000));
+
+  /** Issuer attests a new tenant off-chain + on-chain (valid 90 days); returns the tenant's private state. */
   const attestTenant = async (income: bigint): Promise<TenantProofPrivateState> => {
     const sk = randomBytes32();
-    const att = issueAttestation(income, tenantPublicKey(sk));
+    const att = issueAttestation(income, tenantPublicKey(sk), expiresAtFromDays(nowSeconds(), 90n));
     await call(PRIVATE_STATE_ID, 'attest', [att.leaf]);
-    return createTenantProofPrivateState(sk, att.income, att.salt);
+    return createTenantProofPrivateState(sk, att.income, att.salt, att.expiresAt);
   };
 
   it('deploys the contract with the deployer as issuer', async () => {
@@ -208,7 +212,7 @@ describe(`Tenant Proof Contract (${network})`, () => {
   it('a tenant earning at least 3.0x the rent proves eligibility without revealing income', async () => {
     const tenant = await attestTenant(5200n);
     await setPrivateState(TENANT_ID, tenant);
-    await call(TENANT_ID, 'apply', [ROOM]);
+    await call(TENANT_ID, 'apply', [ROOM, checkTimeFor(nowSeconds())]);
     const l = await queryLedger();
     expect(l.applications.member(applicationIdFor(ROOM, tenant.secretKey))).toBe(true);
     expect(l.attestationCount).toBe(1n);
@@ -217,7 +221,7 @@ describe(`Tenant Proof Contract (${network})`, () => {
   it('a tenant earning less than 3.0x the rent is rejected before anything is submitted', async () => {
     const poor = await attestTenant(4000n);
     await setPrivateState(POOR_TENANT_ID, poor);
-    await expect(call(POOR_TENANT_ID, 'apply', [ROOM])).rejects.toThrow("Income is below the listing's required multiple of the rent");
+    await expect(call(POOR_TENANT_ID, 'apply', [ROOM, checkTimeFor(nowSeconds())])).rejects.toThrow("Income is below the listing's required multiple of the rent");
     expect((await queryLedger()).applications.size()).toBe(1n);
   });
 });

@@ -19,7 +19,7 @@ Positioning (decided 2026-11-19, from local research notes, not published): the 
 TODO: next delivery date.
 
 ## Core user path
-1. The issuer attests a tenant's income and hands the tenant a credential (income + salt) privately.
+1. The issuer attests a tenant's income and hands the tenant a credential (income + expiry + salt) privately. The issuer can later revoke it.
 2. A landlord lists a room with its monthly rent and the multiple of the rent applicants must earn.
 3. The tenant, on their own device and wallet, proves income ≥ that multiple of the rent and applies.
 4. The landlord sees an application id for that listing.
@@ -50,7 +50,7 @@ Not done in the hackathon. Record each interview in a gitignored notes file; no 
 
 ## Known gaps
 - **Students and gig or freelance workers have no payroll issuer**, so this version cannot serve them. Deferred; to be solved later. The local research notes (not published) call irregular income a real cross-market gap and the weakest point of an issuer-based design.
-- Attestations cannot expire or be revoked, so an old attestation stays valid (landlords prefer fresh data).
+- Expiry and revocation (S5) stop new applications only: an application already made stays after its attestation expires or is revoked, so a landlord who wants fresh data must ask for a new application. Only the issuer can revoke.
 - Credentials can be shared; nothing binds them to a person (borrowed identity is the documented fraud pattern).
 - Issuer liability for the attested figure is unsourced.
 
@@ -73,7 +73,7 @@ Ordered, each demoable. This list records the slices only; none is started by th
 | — | Network resilience | Indexer reads and waits retry transient failures with backoff and timeouts; proving retries only a refused connection or 5xx/429; submit is never retried; logged errors carry no URL or Blockfrost `project_id`; the Preview flow passes through the wrapped providers |
 | S3 | Wallet integration | apply / createListing / attest go through Lace and a proof server. Done 2026-11-22 (local run only; the hosted page stays demo mode) |
 | S4 | Configurable multiplier, landlord-owned listings | Listings bound to the landlord's key; the landlord sets the multiplier; listings can be closed. Built and tested in memory (contract, demo mode, wallet mode); not yet run on Preview |
-| S5 | Expiry, then revocation | Attestations can expire, then be revoked |
+| S5 | Expiry, then revocation | Attestations can expire, then be revoked. Built and tested in memory (contract, demo mode, wallet mode): the expiry stays inside the commitment and `apply` makes public only an hour-rounded check time; the issuer revokes by index. Not yet run on Preview |
 | S6 | Malaysian demo script | Young working-person protagonist, public evidence only, A1-A5 shown as unvalidated |
 
 Interviews are not slices; they are the validation steps above.
@@ -87,7 +87,7 @@ Order follows the README roadmap; dates are not set yet.
 | TODO | Wallet integration | The UI submits apply / createListing / attest through Lace and a proof server |
 | TODO | Assumptions A1-A5 tested | The validation steps above are done and each assumption is marked confirmed or disproved |
 | TODO | First issuer decision | A payroll or HR platform, or another issuer type, is chosen from the interview results |
-| TODO | Expiry and revocation | Attestations can expire and be revoked |
+| TODO | Expiry and revocation | Attestations can expire and be revoked (built in S5; Preview run pending) |
 | TODO | Multiple issuers and criteria | More than one issuer; alternatives such as savings ≥ 12× rent |
 | TODO | Landlord-owned listings | Listings bound to the landlord's key, configurable multiplier, can be closed |
 | TODO | "This id is mine" | A tenant can prove ownership of one application id to one landlord without linking their other applications |

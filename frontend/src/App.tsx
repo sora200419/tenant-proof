@@ -5,9 +5,10 @@ import {
   TenantProofDemo,
   UINT32_MAX,
   applicationIdHex,
-  attestationLeafHex,
   errorMessage,
+  parseCredentialBundle,
   findLeaks,
+  formatUtc,
   fromHex,
   incomeAsCircuitBytesHex,
   newSecretKeyHex,
@@ -18,12 +19,20 @@ import {
   type LedgerSnapshot,
   type Secret,
 } from './lib/client';
-import { formatMultiplier, parseMultiplierTenths, requiredIncome } from '../../src/attest';
+import {
+  SECONDS_PER_DAY,
+  checkTimeFor,
+  expiresAtFromDays,
+  formatMultiplier,
+  parseMultiplierTenths,
+  parseValidDays,
+  requiredIncome,
+} from '../../src/attest';
 
 type RoleTab = 'issuer' | 'landlord' | 'tenant';
 
-/** What the issuer hands a tenant off-chain. Never written to the ledger. */
-type Credential = { income: string; saltHex: string; leafHex: string };
+/** What the issuer hands a tenant off-chain. Never written to the ledger. `expiresAt` is seconds since the epoch. */
+type Credential = { income: string; expiresAt: string; saltHex: string; leafHex: string };
 
 type Tenant = {
   id: string;
@@ -35,7 +44,10 @@ type Tenant = {
 
 type LogEntry = { id: number; ok: boolean; actor: string; message: string; time: string };
 
-type CredentialBundle = { tenantPublicKey: string; income: string; salt: string; leaf: string };
+type CredentialBundle = { tenantPublicKey: string; income: string; expiresAt: string; salt: string; leaf: string };
+
+/** How far the demo clock moves per press. */
+const CLOCK_STEP_DAYS = 30n;
 
 const ROOM_A = 'bukit-jalil-room-a';
 const STUDIO = 'cyberjaya-studio';
@@ -107,7 +119,10 @@ function DemoMode() {
   // Issuer form
   const [attestTargetId, setAttestTargetId] = useState('alice');
   const [attestIncome, setAttestIncome] = useState('6000');
+  const [attestDays, setAttestDays] = useState('90');
   const [lastBundle, setLastBundle] = useState<CredentialBundle | null>(null);
+  // Demo clock (seconds since the epoch), re-read after every action.
+  const [clock, setClock] = useState<bigint | null>(null);
   // Landlord form
   const [listingLabel, setListingLabel] = useState(ROOM_A);
   const [listingRent, setListingRent] = useState('1500');
@@ -136,6 +151,7 @@ function DemoMode() {
         if (cancelled) return;
         demoRef.current = demo;
         setSnapshot(demo.snapshot());
+        setClock(demo.nowSeconds());
       })
       .catch((e) => !cancelled && setFatal(errorMessage(e)));
     return () => {
@@ -169,6 +185,7 @@ function DemoMode() {
       log(false, actor, `Rejected: ${errorMessage(e)}`);
     } finally {
       setSnapshot(demo.snapshot());
+      setClock(demo.nowSeconds());
       setBusy(false);
     }
   };
@@ -191,6 +208,7 @@ function DemoMode() {
       setImportText('');
       setLogs([]);
       setSnapshot(demo.snapshot());
+      setClock(demo.nowSeconds());
     } catch (e) {
       setFatal(errorMessage(e));
     } finally {
@@ -202,35 +220,57 @@ function DemoMode() {
     run('Demo data', async (demo) => {
       const [alice, bob] = tenants;
       if (!alice || !bob) throw new Error('Reset first');
-      const a = await demo.attest({ callerSecretKeyHex: issuerSk, tenantPublicKeyHex: alice.publicKeyHex, income: 6000n });
-      const b = await demo.attest({ callerSecretKeyHex: issuerSk, tenantPublicKeyHex: bob.publicKeyHex, income: 3500n });
-      setCredential(alice.id, { income: '6000', saltHex: a.saltHex, leafHex: a.leafHex });
-      setCredential(bob.id, { income: '3500', saltHex: b.saltHex, leafHex: b.leafHex });
+      const expiresAt = expiresAtFromDays(demo.nowSeconds(), 90n);
+      const a = await demo.attest({ callerSecretKeyHex: issuerSk, tenantPublicKeyHex: alice.publicKeyHex, income: 6000n, expiresAt });
+      const b = await demo.attest({ callerSecretKeyHex: issuerSk, tenantPublicKeyHex: bob.publicKeyHex, income: 3500n, expiresAt });
+      setCredential(alice.id, { income: '6000', expiresAt: expiresAt.toString(), saltHex: a.saltHex, leafHex: a.leafHex });
+      setCredential(bob.id, { income: '3500', expiresAt: expiresAt.toString(), saltHex: b.saltHex, leafHex: b.leafHex });
       const room = await demo.createListing({ landlordSecretKeyHex: landlordSk, label: ROOM_A, rent: 1500n, multiplierTenths: 30n });
       await demo.createListing({ landlordSecretKeyHex: landlordSk, label: STUDIO, rent: 1000n, multiplierTenths: 25n });
       setApplyId(room.listingIdHex);
       setTab('tenant');
-      return 'Issuer attested Alice (6000) and Bob (3500); landlord listed two rooms (rent 1500 at 3.0×, rent 1000 at 2.5×).';
+      return 'Issuer attested Alice (6000) and Bob (3500), valid 90 days; landlord listed two rooms (rent 1500 at 3.0×, rent 1000 at 2.5×).';
     });
 
   const attest = (impostor: boolean) =>
     run(impostor ? 'Impostor issuer' : 'Issuer', async (demo) => {
       const income = parseUint32(attestIncome, 'Monthly income');
+      const expiresAt = expiresAtFromDays(demo.nowSeconds(), parseValidDays(attestDays));
       const res = await demo.attest({
         callerSecretKeyHex: impostor ? newSecretKeyHex() : issuerSk,
         tenantPublicKeyHex: attestTarget.publicKeyHex,
         income,
+        expiresAt,
       });
-      const credential = { income: income.toString(), saltHex: res.saltHex, leafHex: res.leafHex };
+      const credential = { income: income.toString(), expiresAt: expiresAt.toString(), saltHex: res.saltHex, leafHex: res.leafHex };
       setCredential(attestTarget.id, credential);
       setLastBundle({
         tenantPublicKey: attestTarget.publicKeyHex,
         income: credential.income,
+        expiresAt: credential.expiresAt,
         salt: credential.saltHex,
         leaf: credential.leafHex,
       });
-      return `Published commitment ${shortHex(res.leafHex)} for ${attestTarget.name}. The income itself is not on the ledger.`;
+      return `Published commitment ${shortHex(res.leafHex)} for ${attestTarget.name}, valid until ${formatUtc(expiresAt)}. The income and the expiry are not on the ledger.`;
     });
+
+  /** Issuer revokes one tenant's attestation, by the index the contract gives its commitment. */
+  const revoke = (t: Tenant, impostor: boolean) =>
+    run(impostor ? 'Someone else' : 'Issuer', async (demo) => {
+      if (!t.credential) throw new Error(`${t.name} has no attestation`);
+      const index = demo.attestationIndex(t.credential.leafHex);
+      if (index === undefined) throw new Error(`${t.name}'s commitment is not in the tree (already revoked, or not attested on this contract)`);
+      await demo.revoke({ callerSecretKeyHex: impostor ? newSecretKeyHex() : issuerSk, index });
+      return `Revoked attestation #${index} (${t.name}). ${t.name} can no longer apply; applications already made stay. Any proof built before this must be built again.`;
+    });
+
+  const advanceClock = () => {
+    const demo = demoRef.current;
+    if (!demo) return;
+    demo.advanceClock(CLOCK_STEP_DAYS * SECONDS_PER_DAY);
+    setClock(demo.nowSeconds());
+    log(true, 'Demo clock', `Moved forward ${CLOCK_STEP_DAYS} days to ${formatUtc(demo.nowSeconds())}. Nothing on the ledger changed.`);
+  };
 
   const createListing = () =>
     run('Landlord', async (demo) => {
@@ -259,9 +299,10 @@ function DemoMode() {
         tenantSecretKeyHex: tenant.secretKeyHex,
         income,
         saltHex: tenant.credential?.saltHex ?? newSecretKeyHex(),
+        expiresAt: tenant.credential ? BigInt(tenant.credential.expiresAt) : expiresAtFromDays(demo.nowSeconds(), 90n),
         listingIdHex: target.idHex,
       });
-      return `Eligible for "${target.label}". Application ${shortHex(res.applicationIdHex)} recorded; the income was not written to the ledger, and the listing shows it is at least ${formatMultiplier(BigInt(target.multiplierTenths))} the rent.`;
+      return `Eligible for "${target.label}". Application ${shortHex(res.applicationIdHex)} recorded; the income and the expiry were not written to the ledger, and the listing shows it is at least ${formatMultiplier(BigInt(target.multiplierTenths))} the rent. Public check time: ${formatUtc(res.checkTime)}.`;
     });
 
   const addStranger = () => {
@@ -274,21 +315,10 @@ function DemoMode() {
 
   const importBundle = () => {
     try {
-      const raw = JSON.parse(importText) as Partial<CredentialBundle>;
-      if (typeof raw.tenantPublicKey !== 'string' || typeof raw.income !== 'string' || typeof raw.salt !== 'string' || typeof raw.leaf !== 'string') {
-        throw new Error('Credential must have tenantPublicKey, income, salt and leaf as strings');
-      }
-      fromHex(raw.salt, 32);
-      fromHex(raw.leaf, 32);
-      if (raw.tenantPublicKey.toLowerCase() !== tenant.publicKeyHex) {
-        throw new Error(`This credential was issued to another public key, not ${tenant.name}`);
-      }
-      const income = parseUint32(raw.income, 'Income');
-      const leaf = attestationLeafHex(income, tenant.publicKeyHex, raw.salt);
-      if (leaf !== raw.leaf.toLowerCase()) throw new Error('Income and salt do not match the commitment in this credential');
-      setCredential(tenant.id, { income: income.toString(), saltHex: raw.salt.toLowerCase(), leafHex: leaf });
+      const c = parseCredentialBundle(importText, tenant.publicKeyHex, tenant.name);
+      setCredential(tenant.id, { income: c.income.toString(), expiresAt: c.expiresAt.toString(), saltHex: c.saltHex, leafHex: c.leafHex });
       setImportText('');
-      log(true, tenant.name, `Imported and verified the issuer credential (commitment ${shortHex(leaf)}).`);
+      log(true, tenant.name, `Imported and verified the issuer credential (commitment ${shortHex(c.leafHex)}, valid until ${formatUtc(c.expiresAt)}).`);
     } catch (e) {
       log(false, tenant.name, `Import failed: ${errorMessage(e)}`);
     }
@@ -309,6 +339,7 @@ function DemoMode() {
       if (t.credential) {
         secrets.push({ name: `${t.name}: salt`, hex: t.credential.saltHex });
         secrets.push({ name: `${t.name}: income`, hex: incomeAsCircuitBytesHex(BigInt(t.credential.income)) });
+        secrets.push({ name: `${t.name}: expiry`, hex: incomeAsCircuitBytesHex(BigInt(t.credential.expiresAt)) });
       }
     }
     return { checked: secrets.length, fields: snapshot.publicFields.length, leaks: findLeaks(snapshot, secrets) };
@@ -327,6 +358,18 @@ function DemoMode() {
     if (!tenant.credential) return { cls: 'precheck-warn', text: 'No issuer credential on this device. The contract will reject the application.' };
     if (!selectedListing) return { cls: 'precheck-info', text: 'Choose a listing to see the requirement.' };
     if (!selectedListing.open) return { cls: 'precheck-warn', text: 'This listing is closed. The contract will reject the application.' };
+    if (demoRef.current?.attestationIndex(tenant.credential.leafHex) === undefined) {
+      return {
+        cls: 'precheck-warn',
+        text: 'This credential is not in the attestation tree: the issuer revoked it, or it was never attested on this contract. The contract will reject the application.',
+      };
+    }
+    if (clock !== null && BigInt(tenant.credential.expiresAt) < checkTimeFor(clock)) {
+      return {
+        cls: 'precheck-warn',
+        text: `This credential expired (or expires within two hours) at ${formatUtc(BigInt(tenant.credential.expiresAt))}. The contract will reject the application.`,
+      };
+    }
     const need = requiredIncome(BigInt(selectedListing.rent), BigInt(selectedListing.multiplierTenths));
     const have = BigInt(tenant.credential.income);
     return have >= need
@@ -345,6 +388,7 @@ function DemoMode() {
             pk: tenant.publicKeyHex,
             extra: [
               { k: 'Attested income (witness)', v: tenant.credential?.income ?? 'none' },
+              { k: 'Expiry (witness)', v: tenant.credential ? formatUtc(BigInt(tenant.credential.expiresAt)) : 'none' },
               { k: 'Salt (witness)', v: tenant.credential ? shortHex(tenant.credential.saltHex, 14, 10) : 'none' },
             ],
           };
@@ -372,6 +416,12 @@ function DemoMode() {
           <span className="badge" title="The compiled contract runs in this page. No proof is generated and nothing is sent to a network. Every role's keys are held in this one tab.">
             Demo mode · local simulator · no on-chain proof
           </span>
+          <span className="badge" title="Block time of the next action in this demo. Moving it forward shows expiry; nothing on the ledger changes.">
+            Demo clock: {clock === null ? '…' : formatUtc(clock)}
+          </span>
+          <button className="btn ghost" onClick={advanceClock} disabled={busy || !snapshot}>
+            +{CLOCK_STEP_DAYS.toString()} days
+          </button>
           <button className="btn secondary" onClick={seedDemo} disabled={busy || !snapshot}>
             Load demo data
           </button>
@@ -398,7 +448,7 @@ function DemoMode() {
                 <strong>Mock issuer (simulated).</strong> In real use this is an employer, university or bank. Here the demo plays that role, and it is trusted to state the income truthfully.
               </p>
               <p className="hint">
-                The issuer publishes only a salted commitment to <code>(income, tenant public key)</code>. The income and the salt go to the tenant privately.
+                The issuer publishes only a salted commitment to <code>(income, tenant public key, expiry)</code>. The income, the expiry and the salt go to the tenant privately. The issuer can revoke an attestation later; applications already made stay.
               </p>
               <label className="field">
                 <span>Tenant</span>
@@ -414,6 +464,10 @@ function DemoMode() {
                 <span>Attested monthly income (the issuer is trusted; stays off-chain)</span>
                 <input inputMode="numeric" value={attestIncome} onChange={(e) => setAttestIncome(e.target.value)} />
               </label>
+              <label className="field">
+                <span>Valid for (whole days from the demo clock; the expiry stays off-chain)</span>
+                <input inputMode="numeric" value={attestDays} onChange={(e) => setAttestDays(e.target.value)} />
+              </label>
               <div className="btn-row">
                 <button className="btn primary" onClick={() => attest(false)} disabled={busy}>
                   Publish attestation
@@ -421,6 +475,40 @@ function DemoMode() {
                 <button className="btn danger" onClick={() => attest(true)} disabled={busy}>
                   Try as someone who is not the issuer
                 </button>
+              </div>
+
+              <div className="sublist">
+                <h3>Revoke an attestation</h3>
+                {tenants.filter((t) => t.credential).length === 0 ? (
+                  <p className="muted">No attestations yet.</p>
+                ) : (
+                  tenants
+                    .filter((t) => t.credential)
+                    .map((t) => {
+                      const index = demoRef.current?.attestationIndex(t.credential!.leafHex);
+                      return (
+                        <div key={t.id} className="subitem">
+                          <div>
+                            <strong>{t.name}</strong> · commitment {shortHex(t.credential!.leafHex, 8, 6)} · valid until {formatUtc(BigInt(t.credential!.expiresAt))} ·{' '}
+                            {index === undefined ? 'not in the tree (revoked, or not attested on this contract)' : `#${index}`}
+                          </div>
+                          {index !== undefined && (
+                            <div className="btn-row">
+                              <button className="btn small secondary" onClick={() => revoke(t, false)} disabled={busy}>
+                                Revoke (permanent)
+                              </button>
+                              <button className="btn small danger" onClick={() => revoke(t, true)} disabled={busy}>
+                                Try revoking as someone else
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                )}
+                <p className="muted">
+                  Revoking makes public which attestation number was revoked (the number is already public from the order of attestations), not whose it is. Any tenant whose proof was built before the revocation must build it again.
+                </p>
               </div>
 
               {lastBundle && (
@@ -439,7 +527,7 @@ function DemoMode() {
             <div className="card">
               <h2>List a room</h2>
               <p className="hint">
-                The landlord sets a public rent and the multiple k of the rent applicants must earn. Afterwards the landlord sees only application ids, with no name or key attached, that passed <code>income ≥ k × rent</code>. The listing id is computed from the landlord’s key and the label, so only that key can close it and nobody can take it first.
+                The landlord sets a public rent and the multiple k of the rent applicants must earn. Afterwards the landlord sees only application ids, with no name or key attached, that passed <code>income ≥ k × rent</code>. The listing id is computed from the landlord’s key and the label, so only that key can close it and nobody can take it first. Each application records that the check passed when it was made; it stays if the tenant’s attestation later expires or is revoked.
               </p>
               <label className="field">
                 <span>Label (up to 32 characters, public)</span>
@@ -496,7 +584,7 @@ function DemoMode() {
             <div className="card">
               <h2>Prove eligibility and apply</h2>
               <p className="hint">
-                The tenant’s key, income and salt are private inputs. The circuit checks that the issuer attested this income, that the listing is open, and that the income is at least the listing’s multiple of the rent.
+                The tenant’s key, income, expiry and salt are private inputs. The circuit checks that the issuer attested this income and has not revoked it, that it has not expired, that the listing is open, and that the income is at least the listing’s multiple of the rent. The application makes public a check time (the next whole hour plus one), not the expiry.
               </p>
               <label className="field">
                 <span>Acting as</span>
@@ -548,7 +636,7 @@ function DemoMode() {
               <details className="import-box">
                 <summary>Import a credential from the issuer</summary>
                 <p className="muted">Paste the JSON the issuer gave you. It is checked against your key before it is stored on this device.</p>
-                <textarea rows={5} value={importText} onChange={(e) => setImportText(e.target.value)} placeholder='{"tenantPublicKey": "…", "income": "…", "salt": "…", "leaf": "…"}' />
+                <textarea rows={5} value={importText} onChange={(e) => setImportText(e.target.value)} placeholder='{"tenantPublicKey": "…", "income": "…", "expiresAt": "…", "salt": "…", "leaf": "…"}' />
                 <div className="btn-row" style={{ marginTop: 8 }}>
                   <button className="btn small secondary" onClick={importBundle} disabled={!importText.trim()}>
                     Verify and import
@@ -582,7 +670,7 @@ function DemoMode() {
             <div className={`audit-banner ${audit.leaks.length === 0 ? 'audit-ok' : 'audit-fail'}`}>
               {audit.leaks.length === 0 ? (
                 <>
-                  <strong>Privacy check passed.</strong> Searched every byte string in the decoded public ledger ({audit.fields}) for {audit.checked} private values (keys, salts, incomes): none found.
+                  <strong>Privacy check passed.</strong> Searched every byte string in the decoded public ledger ({audit.fields}) for {audit.checked} private values (keys, salts, incomes, expiries): none found.
                 </>
               ) : (
                 <>
@@ -608,6 +696,10 @@ function DemoMode() {
                 <div className="kv">
                   <span className="k">attestations</span>
                   <code className="v">{snapshot.attestationCount} commitments, root {shortHex(snapshot.attestationRoot, 8, 6)}</code>
+                </div>
+                <div className="kv">
+                  <span className="k">revoked</span>
+                  <code className="v">{snapshot.revoked.length === 0 ? 'none' : snapshot.revoked.map((i) => `#${i}`).join(', ')}</code>
                 </div>
                 <div className="kv-block">
                   <span className="k">listings (id → label, rent, multiple, open)</span>

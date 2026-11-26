@@ -37,7 +37,9 @@ TODO: extract from `frontend/src/styles.css` when the product UI is designed.
 | Issuer tab | 1. Attest | Buttons disabled while busy | — | Assert message in the log ("Only the issuer can attest") |
 | Landlord tab | 2. List a room | Buttons disabled while busy | — | Assert message in the log (duplicate id, zero rent) |
 | Landlord tab: close | 2 | Buttons disabled while busy | Open listings show Close and "Try closing as someone else" | Assert message in the log (`Unknown listing` for another key, `Listing is already closed`) |
-| Tenant tab | 3. Apply | Buttons disabled while busy | — | Assert message in the log (income below the listing's multiple, listing closed, no attestation, already applied) |
+| Tenant tab | 3. Apply | Buttons disabled while busy | — | Assert message in the log (income below the listing's multiple, listing closed, no attestation, attestation expired, already applied); a local precheck warns first when the credential has expired or is not in the attestation tree |
+| Issuer tab: revoke | after 1 | Buttons disabled while busy | "No attestations yet" | `Only the issuer can revoke` (the "Try revoking as someone else" button) |
+| Demo clock (top bar) | any | — | — | Only moves forward (+30 days per press) |
 | Activity log | all | — | "Nothing yet. Press Load demo data…" | Rejected actions shown in red with the assert message |
 | Ledger / private state panels | 4. Landlord sees the id | Waits for the in-page deploy | Empty tables | Full-page message if the contract cannot start in the browser |
 
@@ -47,10 +49,11 @@ TODO: extract from `frontend/src/styles.css` when the product UI is designed.
 | Connect wallet | before every step | Waits for the user in Lace | "No Midnight wallet with connector API 4.x found" (names wallets found but unsupported) | Wrong network, declined connection, locked wallet or site not allowed (unlock Lace and connect again), wallet disconnected: one line naming the step |
 | Choose role + store password | before every step | — | — | Password too weak |
 | Contract | 1 | Reads the indexer | Address field; issuer also sees Deploy | Not a 64-hex address, indexer unavailable |
-| Tenant: import credential | 1 → 3 | — | No credential yet | Credential issued to another key, income or salt does not match the commitment |
+| Tenant: import credential | 1 → 3 | — | No credential yet | Credential issued to another key; income, expiry or salt does not match the commitment; expiry not whole seconds |
 | Tenant: apply | 3 | Four stages: proof on this computer, waiting for approval in Lace, submitted (tx id), confirmed (block) | No listings on this contract; closed listings are shown but cannot be chosen | Circuit assert shown before anything is proven (`Income is below the listing's required multiple of the rent`), proof server unreachable, DUST missing, Lace declined, contract deployed before S4 |
 | Landlord: listings, close and applications | 2, 4 | Same four stages | Only listings this tab's key created; no applications | Multiplier not like `3` or `2.5`, or outside 1.0–10.0; same |
-| Issuer: attest | 1 | Same four stages | — | Not the issuer, same |
+| Issuer: attest | 1 | Same four stages | — | Not the issuer; validity not 1–3650 whole days; same |
+| Issuer: revoke | after 1 | Reads the attestation index from the indexer (several reads), then the same four stages | — | Commitment not in the tree after several reads (never attested here, already revoked, or the indexer is behind); not the issuer; already revoked |
 
 Not designed yet: mockups, tokens and a visual direction (the page reuses the demo's styles); separate entry points per role (today one page, one role per tab).
 

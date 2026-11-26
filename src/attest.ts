@@ -13,13 +13,75 @@ export const tenantPublicKey = (tenantSecretKey: Uint8Array): Uint8Array => pure
 /**
  * What the issuer does off-chain for one tenant: pick a fresh salt and compute
  * the attestation leaf. The issuer publishes `leaf` with the `attest` circuit
- * and hands `{ income, salt }` to the tenant over a private channel.
+ * and hands `{ income, expiresAt, salt }` to the tenant over a private channel.
+ * `expiresAt` is in seconds since the epoch; it stays inside the commitment.
  */
-export const issueAttestation = (income: bigint, tenantPk: Uint8Array, salt: Uint8Array = randomBytes32()) => ({
+export const issueAttestation = (
+  income: bigint,
+  tenantPk: Uint8Array,
+  expiresAt: bigint,
+  salt: Uint8Array = randomBytes32(),
+) => ({
   income,
+  expiresAt,
   salt,
-  leaf: pureCircuits.attestationLeaf(income, tenantPk, salt),
+  leaf: pureCircuits.attestationLeaf(income, tenantPk, expiresAt, salt),
 });
+
+export const SECONDS_PER_HOUR = 3600n;
+export const SECONDS_PER_DAY = 86_400n;
+
+/**
+ * Parses an expiry written as whole seconds since the epoch (as a credential
+ * carries it). Digits only: no separators, signs or decimals are guessed.
+ */
+export const parseExpiresAt = (raw: string): bigint => {
+  const t = raw.trim();
+  if (!/^\d{1,20}$/.test(t)) throw new Error('Expiry must be whole seconds since 1970 (digits only)');
+  const v = BigInt(t);
+  if (v > 0xffffffffffffffffn) throw new Error('Expiry is too large');
+  return v;
+};
+
+/** Parses a validity typed as whole days (1 to 3650). */
+export const parseValidDays = (raw: string): bigint => {
+  const t = raw.trim();
+  if (!/^\d{1,4}$/.test(t)) throw new Error('Validity must be a whole number of days, with no separators');
+  const d = BigInt(t);
+  if (d < 1n || d > 3650n) throw new Error('Validity must be between 1 and 3650 days');
+  return d;
+};
+
+/** An expiry `days` whole days after `nowSeconds`. */
+export const expiresAtFromDays = (nowSeconds: bigint, days: bigint): bigint => {
+  if (days < 1n) throw new Error('Validity must be at least 1 day');
+  return nowSeconds + days * SECONDS_PER_DAY;
+};
+
+/**
+ * The public check time an application uses: the next whole hour after
+ * `nowSeconds`, plus one hour. The circuit checks block time <= t <= expiresAt,
+ * so t must be later than the moment the transaction lands, and it shows only
+ * the hour, never the credential's expiry. t is more than one hour after
+ * `nowSeconds`; wallet mode's one-hour transaction TTL starts when the
+ * transaction is built, a little after `nowSeconds`, so a transaction that
+ * lands at the very end of its TTL can find t only seconds ahead (it still
+ * passes while block time <= t). The local clock is trusted: if it runs more
+ * than about an hour behind the chain, the proof passes locally and the
+ * transaction fails on chain; if it runs ahead, t shows that skew. A credential
+ * that expires before t cannot be used, so the last one to two hours of
+ * validity are lost.
+ */
+export const checkTimeFor = (nowSeconds: bigint): bigint =>
+  (nowSeconds / SECONDS_PER_HOUR + 2n) * SECONDS_PER_HOUR;
+
+/**
+ * The index (0 = first attested) of the leaf a Merkle path leads to, from its
+ * left/right steps; `path[0]` is the step next to the leaf. Revocation names
+ * an attestation by this index.
+ */
+export const leafIndexFromPath = (path: { path: readonly { goes_left: boolean }[] }): bigint =>
+  path.path.reduce((index, step, level) => (step.goes_left ? index : index | (1n << BigInt(level))), 0n);
 
 /** A listing's human label as the 32 bytes the contract stores (UTF-8, zero-padded). */
 export const listingLabelBytes = (label: string): Uint8Array => {

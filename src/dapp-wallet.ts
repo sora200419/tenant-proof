@@ -32,7 +32,7 @@ export const SUPPORTED_API_MAJOR = 4;
 
 /**
  * The proof server the UI uses. It receives the private inputs of every proof
- * (a tenant's income and salt), so it must run on the user's own machine.
+ * (a tenant's income, expiry and salt), so it must run on the user's own machine.
  */
 export const LOCAL_PROOF_SERVER = 'http://127.0.0.1:6300';
 
@@ -51,7 +51,7 @@ export function assertLoopbackUrl(url: string): string {
   }
   if (!LOOPBACK_HOSTS.has(parsed.hostname)) {
     throw new Error(
-      'Refusing a proof server that is not on this computer: it would receive your private inputs (income and salt)',
+      'Refusing a proof server that is not on this computer: it would receive your private inputs (income, expiry and salt)',
     );
   }
   return url;

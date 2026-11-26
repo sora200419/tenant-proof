@@ -20,11 +20,18 @@ import CompactStandardLibrary;
 export sealed ledger issuerPk: Bytes<32>;
 
 // Income attestations published by the issuer. Each leaf is
-// persistentCommit([income, tenantPk], salt): hiding (salted) and binding.
-// Historic, so a proof built against an older root stays valid while the
-// issuer keeps attesting other tenants.
+// persistentCommit([income, tenantPk, expiresAt], salt): hiding (salted) and
+// binding. expiresAt (seconds since the epoch) is set by the issuer and stays
+// inside the commitment: apply never makes it public. Historic, so a proof
+// built against an older root stays valid while the issuer keeps attesting
+// other tenants, until the issuer revokes an attestation (revoke resets the
+// history, so every older root stops being accepted).
 export ledger attestations: HistoricMerkleTree<10, Bytes<32>>;
 export ledger attestationCount: Counter;
+
+// Indices (insertion order, from 0) of revoked attestations. The index of each
+// leaf is already public from the order of attest transactions.
+export ledger revoked: Set<Uint<64>>;
 
 // One listing. The multiplier is in tenths (30 = 3.0x), from 10 (1.0x) to
 // 100 (10.0x), fixed when the listing is created. A closed listing stays on
@@ -56,6 +63,7 @@ export ledger applications: Map<Bytes<32>, Bytes<32>>;
 witness secretKey(): Bytes<32>;
 witness income(): Uint<32>;
 witness incomeSalt(): Bytes<32>;
+witness attestationExpiry(): Uint<64>;
 witness attestationPath(leaf: Bytes<32>): MerkleTreePath<10, Bytes<32>>;
 
 constructor() {
@@ -70,8 +78,9 @@ export pure circuit publicKey(sk: Bytes<32>): Bytes<32> {
   return persistentHash<Vector<2, Bytes<32>>>([pad(32, "tenantproof:pk:"), sk]);
 }
 
-export pure circuit attestationLeaf(inc: Uint<32>, tenantPk: Bytes<32>, salt: Bytes<32>): Bytes<32> {
-  return persistentCommit<Vector<2, Bytes<32>>>([inc as Field as Bytes<32>, tenantPk], salt);
+export pure circuit attestationLeaf(inc: Uint<32>, tenantPk: Bytes<32>, expiresAt: Uint<64>, salt: Bytes<32>): Bytes<32> {
+  return persistentCommit<Vector<3, Bytes<32>>>(
+    [inc as Field as Bytes<32>, tenantPk, expiresAt as Field as Bytes<32>], salt);
 }
 
 export pure circuit applicationId(listingId: Bytes<32>, sk: Bytes<32>): Bytes<32> {
@@ -89,12 +98,27 @@ export pure circuit listingId(label: Bytes<32>, sk: Bytes<32>): Bytes<32> {
 // ---------------------------------------------------------------------------
 
 // Issuer only: publish an income attestation for a tenant. The issuer computes
-// the leaf off-chain with attestationLeaf and hands (income, salt) to the
+// the leaf off-chain with attestationLeaf and hands (income, expiresAt, salt) to the
 // tenant privately.
 export circuit attest(leaf: Bytes<32>): [] {
   assert(disclose(publicKey(secretKey()) == issuerPk), "Only the issuer can attest");
   attestations.insert(disclose(leaf));
   attestationCount.increment(1);
+}
+
+// Issuer only: revoke the attestation at this index (0 = the first attested).
+// The leaf is overwritten with the default value and the root history is reset,
+// so neither a fresh path nor a path built against an older root verifies it
+// again. Every proof in flight against an older root must be built again.
+// Applications already made stay: they record that the check passed then.
+export circuit revoke(index: Uint<64>): [] {
+  assert(disclose(publicKey(secretKey()) == issuerPk), "Only the issuer can revoke");
+  const i = disclose(index);
+  assert(i < attestationCount.read(), "Unknown attestation");
+  assert(!revoked.member(i), "Already revoked");
+  attestations.insertIndexDefault(i);
+  attestations.resetHistory();
+  revoked.insert(i);
 }
 
 // Landlord: register a listing with its monthly rent and multiplier. The id is
@@ -125,9 +149,12 @@ export circuit closeListing(label: Bytes<32>): [] {
   });
 }
 
-// Tenant: prove income >= multiplier x rent for an open listing, without
-// writing the income to the ledger.
-export circuit apply(targetId: Bytes<32>): [] {
+// Tenant: prove income >= multiplier x rent for an open listing with an
+// attestation that has not expired, without writing the income or the expiry
+// to the ledger. checkTime is public: the client sets it to the next whole hour
+// plus one hour, so it shows only roughly when the application was made. The
+// circuit checks block time <= checkTime <= expiresAt.
+export circuit apply(targetId: Bytes<32>, checkTime: Uint<64>): [] {
   const id = disclose(targetId);
   assert(listings.member(id), "Unknown listing");
   const listing = listings.lookup(id);
@@ -135,11 +162,16 @@ export circuit apply(targetId: Bytes<32>): [] {
 
   const sk = secretKey();
   const inc = income();
-  const leaf = attestationLeaf(inc, publicKey(sk), incomeSalt());
+  const t = disclose(checkTime);
+  assert(blockTimeLte(t), "Check time is in the past");
+  const expiresAt = attestationExpiry();
+  const leaf = attestationLeaf(inc, publicKey(sk), expiresAt, incomeSalt());
   const path = attestationPath(leaf);
   assert(disclose(path.leaf == leaf), "Attestation path is for a different leaf");
   assert(attestations.checkRoot(disclose(merkleTreePathRoot<10, Bytes<32>>(path))),
          "No issuer attestation for this income");
+  // Only the pass/fail outcome is public, not expiresAt.
+  assert(disclose(expiresAt >= t), "Attestation has expired");
 
   // income >= (multiplierTenths / 10) x rent, in whole numbers. Only the
   // pass/fail outcome of this comparison becomes public.

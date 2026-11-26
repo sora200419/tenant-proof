@@ -10,6 +10,7 @@ export type Witnesses<PS> = {
   secretKey(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, Uint8Array];
   income(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, bigint];
   incomeSalt(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, Uint8Array];
+  attestationExpiry(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, bigint];
   attestationPath(context: __compactRuntime.WitnessContext<Ledger, PS>,
                   leaf_0: Uint8Array): [PS, { leaf: Uint8Array,
                                               path: { sibling: { field: bigint },
@@ -20,27 +21,36 @@ export type Witnesses<PS> = {
 
 export type ImpureCircuits<PS> = {
   attest(context: __compactRuntime.CircuitContext<PS>, leaf_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
+  revoke(context: __compactRuntime.CircuitContext<PS>, index_0: bigint): Promise<__compactRuntime.CircuitResults<PS, []>>;
   createListing(context: __compactRuntime.CircuitContext<PS>,
                 label_0: Uint8Array,
                 rent_0: bigint,
                 multiplierTenths_0: bigint): Promise<__compactRuntime.CircuitResults<PS, []>>;
   closeListing(context: __compactRuntime.CircuitContext<PS>, label_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
-  apply(context: __compactRuntime.CircuitContext<PS>, targetId_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
+  apply(context: __compactRuntime.CircuitContext<PS>,
+        targetId_0: Uint8Array,
+        checkTime_0: bigint): Promise<__compactRuntime.CircuitResults<PS, []>>;
 }
 
 export type ProvableCircuits<PS> = {
   attest(context: __compactRuntime.CircuitContext<PS>, leaf_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
+  revoke(context: __compactRuntime.CircuitContext<PS>, index_0: bigint): Promise<__compactRuntime.CircuitResults<PS, []>>;
   createListing(context: __compactRuntime.CircuitContext<PS>,
                 label_0: Uint8Array,
                 rent_0: bigint,
                 multiplierTenths_0: bigint): Promise<__compactRuntime.CircuitResults<PS, []>>;
   closeListing(context: __compactRuntime.CircuitContext<PS>, label_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
-  apply(context: __compactRuntime.CircuitContext<PS>, targetId_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
+  apply(context: __compactRuntime.CircuitContext<PS>,
+        targetId_0: Uint8Array,
+        checkTime_0: bigint): Promise<__compactRuntime.CircuitResults<PS, []>>;
 }
 
 export type PureCircuits = {
   publicKey(sk_0: Uint8Array): Uint8Array;
-  attestationLeaf(inc_0: bigint, tenantPk_0: Uint8Array, salt_0: Uint8Array): Uint8Array;
+  attestationLeaf(inc_0: bigint,
+                  tenantPk_0: Uint8Array,
+                  expiresAt_0: bigint,
+                  salt_0: Uint8Array): Uint8Array;
   applicationId(listingId_0: Uint8Array, sk_0: Uint8Array): Uint8Array;
   listingId(label_0: Uint8Array, sk_0: Uint8Array): Uint8Array;
 }
@@ -50,6 +60,7 @@ export type Circuits<PS> = {
   attestationLeaf(context: __compactRuntime.CircuitContext<PS>,
                   inc_0: bigint,
                   tenantPk_0: Uint8Array,
+                  expiresAt_0: bigint,
                   salt_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, Uint8Array>>;
   applicationId(context: __compactRuntime.CircuitContext<PS>,
                 listingId_0: Uint8Array,
@@ -58,12 +69,15 @@ export type Circuits<PS> = {
             label_0: Uint8Array,
             sk_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, Uint8Array>>;
   attest(context: __compactRuntime.CircuitContext<PS>, leaf_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
+  revoke(context: __compactRuntime.CircuitContext<PS>, index_0: bigint): Promise<__compactRuntime.CircuitResults<PS, []>>;
   createListing(context: __compactRuntime.CircuitContext<PS>,
                 label_0: Uint8Array,
                 rent_0: bigint,
                 multiplierTenths_0: bigint): Promise<__compactRuntime.CircuitResults<PS, []>>;
   closeListing(context: __compactRuntime.CircuitContext<PS>, label_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
-  apply(context: __compactRuntime.CircuitContext<PS>, targetId_0: Uint8Array): Promise<__compactRuntime.CircuitResults<PS, []>>;
+  apply(context: __compactRuntime.CircuitContext<PS>,
+        targetId_0: Uint8Array,
+        checkTime_0: bigint): Promise<__compactRuntime.CircuitResults<PS, []>>;
 }
 
 export type Ledger = {
@@ -78,6 +92,12 @@ export type Ledger = {
     history(): Iterator<__compactRuntime.MerkleTreeDigest>
   };
   readonly attestationCount: bigint;
+  revoked: {
+    isEmpty(): boolean;
+    size(): bigint;
+    member(elem_0: bigint): boolean;
+    [Symbol.iterator](): Iterator<bigint>
+  };
   listings: {
     isEmpty(): boolean;
     size(): bigint;

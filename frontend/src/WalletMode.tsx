@@ -8,19 +8,20 @@ import { CopyButton } from './CopyButton';
 import { TenantProofNetwork, privateStateIdFor, type Role, type TxResult, type TxStage } from './lib/network-client';
 import {
   UINT32_MAX,
-  attestationLeafHex,
   errorMessage,
+  parseCredentialBundle,
+  formatUtc,
   fromHex,
   listingTerms as terms,
   shortHex,
+  wallClockSeconds,
+  type CredentialBundle,
   type LedgerListing,
   type LedgerSnapshot,
 } from './lib/client';
-import { parseMultiplierTenths, requiredIncome } from '../../src/attest';
+import { expiresAtFromDays, parseMultiplierTenths, parseValidDays, requiredIncome } from '../../src/attest';
 
 const NETWORK = 'preview';
-
-type CredentialBundle = { tenantPublicKey: string; income: string; salt: string; leaf: string };
 
 function parseUint32(raw: string, field: string): bigint {
   const t = raw.trim();
@@ -113,7 +114,9 @@ export default function WalletMode() {
   // Issuer
   const [tenantPk, setTenantPk] = useState('');
   const [income, setIncome] = useState('6000');
+  const [validDays, setValidDays] = useState('90');
   const [bundle, setBundle] = useState<CredentialBundle | null>(null);
+  const [revokeLeaf, setRevokeLeaf] = useState('');
   // Landlord
   const [label, setLabel] = useState('bukit-jalil-room-a');
   const [rent, setRent] = useState('1500');
@@ -200,7 +203,7 @@ export default function WalletMode() {
    */
   const settledSnapshot = async (addr: string, before: LedgerSnapshot | null) => {
     const sig = (x: LedgerSnapshot) =>
-      `${x.attestationCount}/${x.listings.length}/${x.listings.filter((l) => l.open).length}/${x.applications.length}`;
+      `${x.attestationCount}/${x.revoked.length}/${x.listings.length}/${x.listings.filter((l) => l.open).length}/${x.applications.length}`;
     let snap = await client!.snapshot(addr);
     for (let i = 0; i < 6 && before !== null && sig(snap) === sig(before); i++) {
       await new Promise((r) => setTimeout(r, 2000));
@@ -267,17 +270,33 @@ export default function WalletMode() {
     txRun(
       async (onStage) => {
         const inc = parseUint32(income, 'Monthly income');
+        const expiresAt = expiresAtFromDays(wallClockSeconds(), parseValidDays(validDays));
         fromHex(tenantPk, 32);
         const pk = tenantPk.trim().toLowerCase();
         // The salt exists only here: show the credential before the transaction
         // goes out, so a reload or an error after the commitment lands cannot lose it.
-        const r = await client!.attest(address, pk, inc, onStage, (c) =>
-          setBundle({ tenantPublicKey: pk, income: inc.toString(), salt: c.saltHex, leaf: c.leafHex }),
+        const r = await client!.attest(address, pk, inc, expiresAt, onStage, (c) =>
+          setBundle({ tenantPublicKey: pk, income: inc.toString(), expiresAt: c.expiresAt.toString(), salt: c.saltHex, leaf: c.leafHex }),
         );
         return r.tx;
       },
-      () => 'Attestation published. Hand the credential below to the tenant privately; the income is not on the ledger.',
+      () => 'Attestation published. Hand the credential below to the tenant privately; the income and the expiry are not on the ledger.',
     );
+
+  const revoke = () => {
+    let index = 0n;
+    return txRun(
+      async (onStage) => {
+        const r = await client!.revoke(address, revokeLeaf, onStage);
+        index = r.index;
+        return r.tx;
+      },
+      () => {
+        setRevokeLeaf('');
+        return `Revoked attestation #${index}. That tenant can no longer apply; applications already made stay. Proofs built before this must be built again.`;
+      },
+    );
+  };
 
   const createListing = () => {
     let need = 0n;
@@ -301,33 +320,29 @@ export default function WalletMode() {
 
   const apply = () => {
     let appId = '';
+    let checkTime = 0n;
     const target = listings.find((l) => l.idHex === applyId);
     return txRun(
       async (onStage) => {
         if (!target) throw new Error('Choose a listing');
         const r = await client!.apply(address, tenantStateId, target.idHex, onStage);
         appId = r.applicationIdHex;
+        checkTime = r.checkTime;
         return r.tx;
       },
-      () => `Eligible for "${target?.label}". Application ${shortHex(appId)} recorded; the income was not written to the ledger.`,
+      () =>
+        `Eligible for "${target?.label}". Application ${shortHex(appId)} recorded; the income and the expiry were not written to the ledger. Public check time: ${formatUtc(checkTime)}.`,
     );
   };
 
   const importCredential = () =>
     guard(async () => {
-      const raw = JSON.parse(importText) as Partial<CredentialBundle>;
-      if (typeof raw.tenantPublicKey !== 'string' || typeof raw.income !== 'string' || typeof raw.salt !== 'string' || typeof raw.leaf !== 'string') {
-        throw new Error('Credential must have tenantPublicKey, income, salt and leaf as strings');
-      }
-      if (raw.tenantPublicKey.toLowerCase() !== myPk) throw new Error(`This credential was issued to another public key, not identity "${identity}"`);
-      const inc = parseUint32(raw.income, 'Income');
-      const salt = fromHex(raw.salt, 32);
-      if (attestationLeafHex(inc, myPk, raw.salt) !== raw.leaf.toLowerCase()) {
-        throw new Error('Income and salt do not match the commitment in this credential');
-      }
-      await client!.setTenantCredential(address, tenantStateId, inc, salt);
+      const { income: inc, expiresAt, saltHex } = parseCredentialBundle(importText, myPk, `identity "${identity}"`);
+      await client!.setTenantCredential(address, tenantStateId, inc, fromHex(saltHex, 32), expiresAt);
       setImportText('');
-      setNotice(`Credential verified and stored in this browser's encrypted store for identity "${identity}".`);
+      setNotice(
+        `Credential verified and stored in this browser's encrypted store for identity "${identity}". It is valid until ${formatUtc(expiresAt)}, unless the issuer revokes it.`,
+      );
     });
 
   const newIdentity = () => {
@@ -358,7 +373,7 @@ export default function WalletMode() {
     <div className="wallet-mode">
       <div className="audit-banner proof-notice">
         <strong>Your proof server, your machine.</strong> Proofs are built by the proof server on this computer ({LOCAL_PROOF_SERVER}).
-        It receives your private inputs (for a tenant: income and salt). This page never uses a remote proof server; never run one for
+        It receives your private inputs (for a tenant: income, expiry and salt). This page never uses a remote proof server; never run one for
         someone else's inputs.
       </div>
 
@@ -451,6 +466,10 @@ export default function WalletMode() {
                     <span className="k">Attestations</span>
                     <code className="v">{snapshot.attestationCount}</code>
                   </div>
+                  <div className="kv">
+                    <span className="k">Revoked</span>
+                    <code className="v">{snapshot.revoked.length === 0 ? 'none' : snapshot.revoked.map((i) => `#${i}`).join(', ')}</code>
+                  </div>
                   <div className="btn-row">
                     <button className="btn small ghost" onClick={() => load(address)} disabled={busy}>
                       Refresh from the indexer
@@ -482,8 +501,8 @@ export default function WalletMode() {
             <div className="card">
               <h2>Attest a tenant's income</h2>
               <p className="hint">
-                <strong>Mock issuer.</strong> In real use an employer, university or bank. It publishes only a salted commitment; hand the
-                income and salt to the tenant privately.
+                <strong>Mock issuer.</strong> In real use an employer, university or bank. It publishes only a salted commitment to the
+                income, the tenant's key and an expiry; hand the income, expiry and salt to the tenant privately.
               </p>
               <label className="field">
                 <span>Tenant public key (the tenant shows it on their tab)</span>
@@ -493,10 +512,31 @@ export default function WalletMode() {
                 <span>Attested monthly income</span>
                 <input inputMode="numeric" value={income} onChange={(e) => setIncome(e.target.value)} />
               </label>
+              <label className="field">
+                <span>Valid for (whole days from now; the expiry stays off-chain)</span>
+                <input inputMode="numeric" value={validDays} onChange={(e) => setValidDays(e.target.value)} />
+              </label>
               <div className="btn-row">
                 <button className="btn primary" onClick={attest} disabled={busy}>
                   Publish attestation
                 </button>
+              </div>
+              <div className="sublist">
+                <h3>Revoke an attestation</h3>
+                <label className="field">
+                  <span>Commitment ("leaf" in the credential you handed out, 64 hex characters)</span>
+                  <input value={revokeLeaf} onChange={(e) => setRevokeLeaf(e.target.value)} placeholder="64 hex characters" />
+                </label>
+                <p className="hint">
+                  Its number in the attestation tree is read from the indexer, and the contract checks that you are the issuer. Public: which
+                  attestation number was revoked (the number is already public from the order of attestations). Applications already made
+                  stay; any tenant's proof built before the revocation must be built again.
+                </p>
+                <div className="btn-row">
+                  <button className="btn danger" onClick={revoke} disabled={busy || !revokeLeaf.trim()}>
+                    Revoke (permanent)
+                  </button>
+                </div>
               </div>
               {bundle && (
                 <div className="bundle-box">
@@ -591,7 +631,7 @@ export default function WalletMode() {
               </div>
               <details className="import-box">
                 <summary>Import the credential from the issuer</summary>
-                <textarea rows={5} value={importText} onChange={(e) => setImportText(e.target.value)} placeholder='{"tenantPublicKey": "…", "income": "…", "salt": "…", "leaf": "…"}' />
+                <textarea rows={5} value={importText} onChange={(e) => setImportText(e.target.value)} placeholder='{"tenantPublicKey": "…", "income": "…", "expiresAt": "…", "salt": "…", "leaf": "…"}' />
                 <div className="btn-row" style={{ marginTop: 8 }}>
                   <button className="btn small secondary" onClick={importCredential} disabled={busy || !importText.trim() || !myPk}>
                     Verify and import
@@ -639,8 +679,8 @@ export default function WalletMode() {
               )}
               <p className="hint">
                 Labels are not unique: two landlords can use the same one, and the short id in the list is not enough to tell them apart.
-                Paste the full id your landlord gave you above, or compare it with the full id shown. The circuit first runs in this page: if the income is below the listing's required multiple of the rent, it stops here and
-                nothing is proven or sent.
+                Paste the full id your landlord gave you above, or compare it with the full id shown. The circuit first runs in this page: if the income is below the listing's required multiple of the rent, or the credential has expired (or expires within about two hours) or was revoked, it stops here and
+                nothing is proven or sent. The application makes public a check time (the next whole hour plus one), not your credential's expiry.
               </p>
               <div className="btn-row">
                 <button

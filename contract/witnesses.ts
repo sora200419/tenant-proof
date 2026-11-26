@@ -4,7 +4,7 @@
 // TypeScript implementations of the contract's witnesses: the private inputs a
 // circuit reads from the user's own device. They are never written to the
 // ledger, but the proof server receives them to build the proof, so it must be
-// the user's own (127.0.0.1:6300); a remote one would see income and salt.
+// the user's own (127.0.0.1:6300); a remote one would see income, expiry and salt.
 // This file also runs in the browser, so no node:* imports.
 import { type Ledger, type Witnesses } from './managed/tenant-proof/contract/index.js';
 import { type WitnessContext } from '@midnight-ntwrk/midnight-js-protocol/v9/compact-runtime';
@@ -12,24 +12,35 @@ import { type WitnessContext } from '@midnight-ntwrk/midnight-js-protocol/v9/com
 /**
  * One participant's private state.
  * - issuer and landlord: only `secretKey`.
- * - tenant: `secretKey`, plus the `income` and `incomeSalt` the issuer handed
- *   over privately when it attested them.
+ * - tenant: `secretKey`, plus the `income`, `incomeSalt` and `expiresAt`
+ *   (seconds since the epoch) the issuer handed over privately when it
+ *   attested them.
  */
 export type TenantProofPrivateState = {
   readonly secretKey: Uint8Array;
   readonly income?: bigint;
   readonly incomeSalt?: Uint8Array;
+  readonly expiresAt?: bigint;
 };
+
+export const UINT64_MAX = 0xffffffffffffffffn;
 
 export const createTenantProofPrivateState = (
   secretKey: Uint8Array,
   income?: bigint,
   incomeSalt?: Uint8Array,
+  expiresAt?: bigint,
 ): TenantProofPrivateState => {
   if (secretKey.length !== 32) throw new Error('secretKey must be 32 bytes');
   if (incomeSalt !== undefined && incomeSalt.length !== 32) throw new Error('incomeSalt must be 32 bytes');
   if (income !== undefined && (income < 0n || income > 0xffffffffn)) throw new Error('income must fit in Uint<32>');
-  return { secretKey, ...(income === undefined ? {} : { income }), ...(incomeSalt === undefined ? {} : { incomeSalt }) };
+  if (expiresAt !== undefined && (expiresAt < 0n || expiresAt > UINT64_MAX)) throw new Error('expiresAt must fit in Uint<64>');
+  return {
+    secretKey,
+    ...(income === undefined ? {} : { income }),
+    ...(incomeSalt === undefined ? {} : { incomeSalt }),
+    ...(expiresAt === undefined ? {} : { expiresAt }),
+  };
 };
 
 // @generated-stub begin witnesses sha=edited
@@ -43,9 +54,15 @@ export const witnesses: Witnesses<TenantProofPrivateState> = {
     if (privateState.incomeSalt === undefined) throw new Error('No attestation salt in private state');
     return [privateState, privateState.incomeSalt];
   },
+  attestationExpiry: ({ privateState }) => {
+    if (privateState.expiresAt === undefined) throw new Error('No attestation expiry in private state');
+    return [privateState, privateState.expiresAt];
+  },
   // Looked up in the attestation tree of the ledger state the circuit runs
   // against. The tree is historic, so the root stays acceptable even if the
-  // issuer attests someone else before this transaction lands.
+  // issuer attests someone else before this transaction lands (but not if the
+  // issuer revokes any attestation first: revoke resets the history). A
+  // revoked leaf is no longer in the tree, so it gets the placeholder below.
   //
   // If the leaf is not in the tree, return a placeholder path instead of
   // throwing. The decision then belongs to the circuit's own root check

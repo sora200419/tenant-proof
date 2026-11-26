@@ -27,6 +27,10 @@
 // current public state, the current private state and the caller's coin
 // public key.
 //
+// Edited for TenantProof (S5): the `time` field pins block time per call.
+// Regenerating this file from midnight-examples drops it; the expiry tests
+// then run at the wall clock and fail.
+//
 // From compact-runtime 0.20 (Compact 0.35) the constructor and circuits are
 // async, and createCircuitContext takes one options object; so deploy(),
 // call() and expectRejects() here are async too.
@@ -88,6 +92,11 @@ export class Sim<C extends SimContract<PS>, PS, L> {
   coinPublicKey: string;
   /** The private state the next call's witnesses see. Assign to swap it. */
   privateState: PS;
+  /**
+   * Block time (seconds since the epoch) the next call() runs at. Unset means
+   * the wall clock; tests set it so they never depend on the real date.
+   */
+  time: number | undefined;
   /** The context the last call returned: zswap inputs/outputs, gas, etc. */
   lastContext: CircuitContext<PS> | undefined;
 
@@ -136,6 +145,8 @@ export class Sim<C extends SimContract<PS>, PS, L> {
       coinPublicKeyOrZswapState: this.coinPublicKey,
       contractState: this.state,
       privateState: this.privateState,
+      // Block time for blockTime* checks; pinned by tests, wall clock if unset.
+      ...(this.time === undefined ? {} : { time: this.time }),
     });
     const out = await (
       fn as (ctx: CircuitContext<PS>, ...a: unknown[]) => Promise<CircuitResults<PS, CircuitResult<C, K>>>

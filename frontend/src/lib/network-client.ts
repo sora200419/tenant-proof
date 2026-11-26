@@ -18,10 +18,20 @@ import type { ProofProvider, WalletProvider } from '@midnight-ntwrk/midnight-js-
 import { ledger } from '../../../contract/managed/tenant-proof/contract/index.js';
 import { BrowserTenantProofContract } from '../../../contract/browser';
 import { createTenantProofPrivateState, type TenantProofPrivateState } from '../../../contract/witnesses';
-import { applicationIdFor, issueAttestation, listingLabelBytes, randomBytes32, tenantPublicKey } from '../../../src/attest';
+import { applicationIdFor, checkTimeFor, issueAttestation, listingLabelBytes, randomBytes32, tenantPublicKey } from '../../../src/attest';
 import { assembleProviders, ledgerState, type TenantProofProviders } from '../../../src/provider-set';
 import { LOCAL_PROOF_SERVER, assertLoopbackUrl, walletProviders, type WalletSession } from '../../../src/dapp-wallet';
-import { fromHex, ownedListingIdHexes, snapshotFromLedger, toHex, type LedgerListing, type LedgerSnapshot } from './client';
+import {
+  attestationIndexOf,
+  findAttestationIndex,
+  fromHex,
+  ownedListingIdHexes,
+  snapshotFromLedger,
+  toHex,
+  wallClockSeconds,
+  type LedgerListing,
+  type LedgerSnapshot,
+} from './client';
 import { KeyedLock, getOrCreate, type StateStore } from './keyed-lock';
 
 export type Role = 'issuer' | 'landlord' | 'tenant';
@@ -147,33 +157,40 @@ export class TenantProofNetwork {
     return this.stateLock.run(`${address}/${id}`, () => this.getOrCreateUnlocked(address, id));
   }
 
-  setTenantCredential(address: string, id: string, income: bigint, salt: Uint8Array): Promise<void> {
+  setTenantCredential(address: string, id: string, income: bigint, salt: Uint8Array, expiresAt: bigint): Promise<void> {
     return this.stateLock.run(`${address}/${id}`, async () => {
       const current = await this.getOrCreateUnlocked(address, id);
-      await this.privateStates(address).set(id, createTenantProofPrivateState(current.secretKey, income, salt));
+      await this.privateStates(address).set(id, createTenantProofPrivateState(current.secretKey, income, salt, expiresAt));
     });
   }
 
-  async snapshot(address: string): Promise<LedgerSnapshot> {
+  private async readLedger(address: string): Promise<ReturnType<typeof ledger>> {
     const read = await this.providers.publicDataProvider.queryContractState(address);
     const state = ledgerState(read);
-    let decoded: ReturnType<typeof ledger>;
     try {
-      decoded = ledger(state);
+      return ledger(state);
     } catch (e) {
-      // A contract deployed before S4 stores listings as id -> rent; this build
-      // expects id -> { label, rent, multiplier, open } and cannot read it.
-      throw new Error('This contract was deployed by an older version of TenantProof (before landlord-owned listings); deploy a new one', {
+      // A contract deployed before S5 has another ledger layout (before S4:
+      // listings as id -> rent; before S5: no revoked set) and cannot be read.
+      throw new Error('This contract was deployed by an older version of TenantProof (before attestation expiry and revocation); deploy a new one', {
         cause: e,
       });
     }
-    return snapshotFromLedger(decoded);
+  }
+
+  async snapshot(address: string): Promise<LedgerSnapshot> {
+    return snapshotFromLedger(await this.readLedger(address));
+  }
+
+  /** Index of this commitment in the current attestation tree (read from the indexer), or undefined if it is not there. */
+  async attestationIndex(address: string, leafHex: string): Promise<bigint | undefined> {
+    return attestationIndexOf(await this.readLedger(address), leafHex);
   }
 
   private async call(
     address: string,
     privateStateId: string,
-    circuitId: 'attest' | 'createListing' | 'closeListing' | 'apply',
+    circuitId: 'attest' | 'revoke' | 'createListing' | 'closeListing' | 'apply',
     args: unknown[],
     onStage: (s: TxStage) => void,
   ): Promise<TxResult> {
@@ -219,14 +236,33 @@ export class TenantProofNetwork {
     address: string,
     tenantPkHex: string,
     income: bigint,
+    expiresAt: bigint,
     onStage: (s: TxStage) => void,
     /** Called with the credential BEFORE the transaction is built: if the page dies after the commitment lands, the salt is not lost. */
-    onCredential: (c: { leafHex: string; saltHex: string }) => void,
+    onCredential: (c: { leafHex: string; saltHex: string; expiresAt: bigint }) => void,
   ) {
-    const att = issueAttestation(income, hexBytes(tenantPkHex, 'Tenant public key'));
-    onCredential({ leafHex: toHex(att.leaf), saltHex: toHex(att.salt) });
+    const att = issueAttestation(income, hexBytes(tenantPkHex, 'Tenant public key'), expiresAt);
+    onCredential({ leafHex: toHex(att.leaf), saltHex: toHex(att.salt), expiresAt });
     const tx = await this.call(address, privateStateIdFor('issuer'), 'attest', [att.leaf], onStage);
-    return { tx, leafHex: toHex(att.leaf), saltHex: toHex(att.salt) };
+    return { tx, leafHex: toHex(att.leaf), saltHex: toHex(att.salt), expiresAt };
+  }
+
+  /**
+   * Issuer: revokes the attestation with this commitment. Its index is read from
+   * the indexer's current tree; the contract checks the caller is the issuer,
+   * the index exists and is not revoked yet. Applications already made stay.
+   */
+  async revoke(address: string, leafHex: string, onStage: (s: TxStage) => void) {
+    const leaf = toHex(hexBytes(leafHex, 'Commitment'));
+    // One indexer read is not a fact: it can lag behind a just-confirmed attest.
+    const index = await findAttestationIndex(() => this.attestationIndex(address, leaf));
+    if (index === undefined) {
+      throw new Error(
+        'This commitment was not found in the attestation tree after several indexer reads: it was never attested on this contract, it is already revoked, or the indexer is behind (try again in a minute)',
+      );
+    }
+    const tx = await this.call(address, privateStateIdFor('issuer'), 'revoke', [index], onStage);
+    return { tx, index };
   }
 
   /** Landlord: lists a room. The contract derives the listing id from this landlord's key and the label. */
@@ -256,8 +292,10 @@ export class TenantProofNetwork {
   async apply(address: string, tenantId: string, listingIdHex: string, onStage: (s: TxStage) => void) {
     const id = hexBytes(listingIdHex, 'Listing id');
     const state = await this.ensurePrivateState(address, tenantId);
-    const tx = await this.call(address, tenantId, 'apply', [id], onStage);
-    return { tx, applicationIdHex: toHex(applicationIdFor(id, state.secretKey)) };
+    // Public: only the hour, never the credential's expiry (see checkTimeFor).
+    const checkTime = checkTimeFor(wallClockSeconds());
+    const tx = await this.call(address, tenantId, 'apply', [id, checkTime], onStage);
+    return { tx, applicationIdHex: toHex(applicationIdFor(id, state.secretKey)), checkTime };
   }
 
   /** The tenant's public key for this identity: what the tenant gives the issuer (never the secret). */

@@ -42,6 +42,13 @@
           }
         },
         {
+          "name": "expiresAt",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        },
+        {
           "name": "salt",
           "type": {
             "type-name": "Bytes",
@@ -124,6 +131,25 @@
       }
     },
     {
+      "name": "revoke",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "index",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
       "name": "createListing",
       "pure": false,
       "proof": true,
@@ -186,6 +212,13 @@
             "type-name": "Bytes",
             "length": 32
           }
+        },
+        {
+          "name": "checkTime",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
         }
       ],
       "result-type": {
@@ -221,6 +254,15 @@
       "result type": {
         "type-name": "Bytes",
         "length": 32
+      }
+    },
+    {
+      "name": "attestationExpiry",
+      "arguments": [
+      ],
+      "result type": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
       }
     },
     {
@@ -314,8 +356,18 @@
       "storage": "Counter"
     },
     {
-      "name": "listings",
+      "name": "revoked",
       "index": 3,
+      "exported": true,
+      "storage": "Set",
+      "type": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
+      }
+    },
+    {
+      "name": "listings",
+      "index": 4,
       "exported": true,
       "storage": "Map",
       "key": {
@@ -358,7 +410,7 @@
     },
     {
       "name": "applications",
-      "index": 4,
+      "index": 5,
       "exported": true,
       "storage": "Map",
       "key": {
